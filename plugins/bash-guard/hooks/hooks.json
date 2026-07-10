@@ -1,0 +1,19 @@
+{
+  "description": "在 Claude Code 执行 Bash 工具前检查命令权限",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bash-guard",
+            "args": [],
+            "timeout": 5,
+            "statusMessage": "正在检查 Bash 命令权限"
+          }
+        ]
+      }
+    ]
+  }
+}

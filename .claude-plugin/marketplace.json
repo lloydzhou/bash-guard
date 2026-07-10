@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "bash-guard-marketplace",
+  "owner": {
+    "name": "bash-agent maintainers"
+  },
+  "metadata": {
+    "description": "Claude Code 安全策略插件目录"
+  },
+  "plugins": [
+    {
+      "name": "bash-guard",
+      "source": "./plugins/bash-guard",
+      "description": "在 Bash 工具执行前按 system/external/network/workspace 权限模式进行阻断",
+      "version": "0.1.0",
+      "author": {
+        "name": "bash-agent maintainers"
+      },
+      "license": "MIT",
+      "keywords": ["security", "bash", "hooks", "permissions"]
+    }
+  ]
+}
