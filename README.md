@@ -4,6 +4,12 @@ Bash Guard 是按 Claude Code 官方插件规范发布的 `PreToolUse` 安全 Ho
 
 `PreToolUse` 先于 Claude Code 权限模式检查执行，因此拒绝结果在 `bypassPermissions` 和 `--dangerously-skip-permissions` 下仍然有效。
 
+拒绝信息与 Bash Agent 保持一致，例如：
+
+```text
+command blocked by bash safety policy (required=4000 allowed=0467; mode=system/external/network/workspace bits=4:read,2:write,1:execute)
+```
+
 ## 权限模式
 
 模式是四位八进制数：

@@ -94,8 +94,12 @@ class HookTests(unittest.TestCase):
         decision = output["hookSpecificOutput"]
         self.assertEqual(decision["hookEventName"], "PreToolUse")
         self.assertEqual(decision["permissionDecision"], "deny")
-        self.assertIn("需要=4000", decision["permissionDecisionReason"])
-        self.assertIn("允许=0467", decision["permissionDecisionReason"])
+        self.assertEqual(
+            decision["permissionDecisionReason"],
+            "command blocked by bash safety policy "
+            "(required=4000 allowed=0467; "
+            "mode=system/external/network/workspace bits=4:read,2:write,1:execute)",
+        )
 
     def test_invalid_input_fails_closed(self) -> None:
         result = self.run_hook("not-json")

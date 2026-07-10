@@ -238,8 +238,8 @@ def evaluate(command: str, cwd: str, allowed_mode: object = None) -> PolicyDecis
         reason = "命令符合 Bash Guard 权限策略"
     else:
         reason = (
-            "命令被 Bash Guard 阻止"
-            f"（需要={required}，允许={allowed}；四位依次为 system/external/network/workspace，"
-            "每位 4=读、2=写、1=执行）"
+            "command blocked by bash safety policy "
+            f"(required={required} allowed={allowed}; "
+            "mode=system/external/network/workspace bits=4:read,2:write,1:execute)"
         )
     return PolicyDecision(is_allowed, allowed, required, reason)
