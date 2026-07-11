@@ -1,6 +1,6 @@
 {
   "name": "bash-guard",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "通过 PreToolUse Hook 在 Bash 命令执行前实施默认拒绝的权限策略",
   "author": {
     "name": "bash-agent maintainers"

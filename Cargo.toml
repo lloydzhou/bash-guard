@@ -1,6 +1,6 @@
 [package]
 name = "bash-guard"
-version = "0.1.2"
+version = "0.1.3"
 edition = "2024"
 description = "Claude Code Bash Hook 的失败关闭权限检查器"
 license = "MIT"

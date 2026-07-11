@@ -2,6 +2,19 @@
 
 本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 0.1.3 - 2026-07-11
+
+### 新增
+
+- 增加 Codex CLI 的 `PreToolUse` / `Bash` Hook 适配，可使用 `bash-guard codex register`、`unregister` 与 `status` 管理用户或 Git 项目作用域注册。
+- Codex 与 Claude Code Hook 复用同一失败关闭策略判定、审计与标准拒绝输出。
+- 审计记录新增 `client` 字段，记录调用来源为 `claude` 或 `codex`。
+
+### 变更
+
+- 默认审计日志按客户端隔离：Claude Code 写入 `$HOME/.claude/bash-guard-audit.jsonl`，Codex 写入 `$HOME/.codex/bash-guard-audit.jsonl`。
+- `BASH_GUARD_AUDIT_LOG` 仍可覆盖默认路径；共用自定义路径时可通过 `client` 字段追溯来源。
+
 ## 0.1.2 - 2026-03-23
 
 ### 变更
