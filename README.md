@@ -8,7 +8,14 @@ Hook 在 Claude Code 权限模式检查之前运行，因此即使启用 `bypass
 
 ## 安装与注册
 
-先用系统包管理器或发布压缩包安装 `bash-guard`，确保它位于稳定的可执行路径中：
+使用 [Homebrew Tap](https://github.com/lloydzhou/homebrew-tap) 安装：
+
+```bash
+brew tap lloydzhou/tap
+brew install bash-guard
+```
+
+也可从 [GitHub Releases](https://github.com/lloydzhou/claude-bash-guard/releases) 下载压缩包安装。安装后，执行注册命令：
 
 ```bash
 bash-guard claude register --scope user
@@ -70,7 +77,7 @@ claude plugin validate .
 
 ## 发布与 Homebrew
 
-发布工作流构建苹果芯片、英特尔苹果系统、Linux x86_64 与 Linux ARM64 的压缩包，并为每个压缩包生成 SHA-256 摘要。更新 Homebrew 配方时，将 Homebrew Tap 中 `Formula/bash-guard.rb` 的占位摘要替换为对应 `.sha256` 文件内容，然后提交到 Tap 仓库。
+发布工作流构建苹果芯片、英特尔苹果系统、Linux x86_64 与 Linux ARM64 的压缩包，并为每个压缩包生成 SHA-256 摘要。Homebrew 配方维护在 [lloydzhou/homebrew-tap](https://github.com/lloydzhou/homebrew-tap)。
 
 ## 企业部署
 
