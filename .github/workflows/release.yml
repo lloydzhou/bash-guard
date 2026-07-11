@@ -14,30 +14,30 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - 运行器: macos-13
-            目标: x86_64-apple-darwin
-          - 运行器: macos-latest
-            目标: aarch64-apple-darwin
-          - 运行器: ubuntu-22.04
-            目标: x86_64-unknown-linux-gnu
-          - 运行器: ubuntu-22.04
-            目标: aarch64-unknown-linux-gnu
-    runs-on: ${{ matrix.运行器 }}
+          - runner: macos-13
+            target: x86_64-apple-darwin
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+          - runner: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+          - runner: ubuntu-22.04
+            target: aarch64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: ${{ matrix.目标 }}
+          targets: ${{ matrix.target }}
       - name: 安装交叉链接器
-        if: matrix.目标 == 'aarch64-unknown-linux-gnu'
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
         run: sudo apt-get update && sudo apt-get install -y gcc-aarch64-linux-gnu
       - name: 构建压缩包
         env:
           CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-        run: scripts/package.sh "${GITHUB_REF_NAME#v}" "${{ matrix.目标 }}"
+        run: scripts/package.sh "${GITHUB_REF_NAME#v}" "${{ matrix.target }}"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.目标 }}
+          name: ${{ matrix.target }}
           path: dist/*
   release:
     needs: build
