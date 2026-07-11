@@ -1,0 +1,16 @@
+name: 检查
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  验证:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --check
+      - run: cargo test
+      - run: cargo build
+      - run: tests/hook.sh

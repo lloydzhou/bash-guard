@@ -1,130 +1,87 @@
 # Bash Guard
 
-Bash Guard 是按 Claude Code 官方插件规范发布的 `PreToolUse` 安全 Hook。它在 `Bash` 工具执行前分类命令所需权限，并在超出允许模式时返回 `permissionDecision: "deny"`。
+Bash Guard 是独立分发的 Rust 安全程序。它通过 Claude Code 的 `PreToolUse` Hook，在 `Bash` 工具执行前按权限模式分类命令并在超出允许范围时拒绝执行。
 
-`PreToolUse` 先于 Claude Code 权限模式检查执行，因此拒绝结果在 `bypassPermissions` 和 `--dangerously-skip-permissions` 下仍然有效。
+Hook 在 Claude Code 权限模式检查之前运行，因此即使启用 `bypassPermissions` 或 `--dangerously-skip-permissions`，策略拒绝仍然生效。
 
-拒绝信息与 Bash Agent 保持一致，例如：
+> 权限模型、分类边界、推荐模式和完整示例由 [Bash Agent 的 Bash 工具权限策略文档](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md) 统一维护。Bash Guard 直接使用同一套 Rust 分类规则，不在此重复维护策略细节。
+
+## 安装与注册
+
+先用系统包管理器或发布压缩包安装 `bash-guard`，确保它位于稳定的可执行路径中：
+
+```bash
+bash-guard claude register --scope user
+```
+
+注册命令会生成一个极小的本地 Claude Code 插件源、调用 Claude Code 官方插件命令完成安装，并记录二进制绝对路径；它不会复制二进制。支持的作用域为 `user`、`project` 与 `local`，默认 `user`。
+
+检查状态：
+
+```bash
+bash-guard claude status
+```
+
+取消注册后再卸载系统包：
+
+```bash
+bash-guard claude unregister --scope user
+```
+
+注册的适配器在二进制缺失、不可执行或异常退出时会明确拒绝 Bash，绝不静默放行。
+
+## 配置与审计
+
+保留原有环境变量兼容性：
+
+```bash
+# 默认值为 0467；权限位的含义见 Bash Agent 策略文档。
+BASH_GUARD_MODE=4447 claude
+
+# 每次判定追加一条 JSONL 审计记录；无法写入时按失败关闭处理。
+BASH_GUARD_AUDIT_LOG="$HOME/.claude/bash-guard-audit.jsonl" claude
+```
+
+无效权限模式按 `0000` 处理。拒绝策略命令时，信息与 Bash Agent 保持一致：
 
 ```text
 command blocked by bash safety policy (required=4000 allowed=0467; mode=system/external/network/workspace bits=4:read,2:write,1:execute)
 ```
 
-## 权限模式
-
-模式是四位八进制数：
-
-```text
-system / external / network / workspace
-```
-
-每一位使用标准 `rwx` 位：
-
-- `4`：读
-- `2`：写
-- `1`：执行
-
-默认模式为 `0467`：
-
-- 系统路径：禁止
-- 工作区外路径：只读
-- 网络：读写
-- 工作区：读写执行
-
-无效模式按 `0000` 处理，失败关闭。
-
-## 官方开发方式
-
-直接从源码目录加载插件：
+## 本地开发
 
 ```bash
-claude --plugin-dir ./plugins/bash-guard
+cargo fmt --check
+cargo test
+cargo build --release
+
+# 直接以当前构建产物验证 Hook 协议。
+printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp/project","tool_input":{"command":"cat README.md"}}' \
+  ./target/debug/bash-guard claude hook
 ```
 
-在 Claude Code 中运行 `/hooks`，确认 `PreToolUse` 下存在来自 `bash-guard` 插件且匹配 `Bash` 的 Hook。
-
-## 官方 Marketplace 安装
-
-本地验证 Marketplace：
+开发时可用以下方式直接加载仓库插件适配器；需先构建并让 `bash-guard` 位于 `PATH`，或设置 `BASH_GUARD_BINARY`：
 
 ```bash
-claude plugin validate .
-claude plugin marketplace add . --scope user
-claude plugin install bash-guard@bash-guard-marketplace --scope user
-```
-
-交互界面中的等价命令：
-
-```text
-/plugin marketplace add /绝对路径/claude-bash-guard
-/plugin install bash-guard@bash-guard-marketplace
-/reload-plugins
-```
-
-卸载：
-
-```bash
-claude plugin uninstall bash-guard@bash-guard-marketplace --scope user
-claude plugin marketplace remove bash-guard-marketplace --scope user
-```
-
-正式发布时，将本仓库推送到 GitHub，然后用户按官方方式安装：
-
-```text
-/plugin marketplace add 所有者/仓库
-/plugin install bash-guard@bash-guard-marketplace
-```
-
-## 配置
-
-当前最低兼容版本为本机已验证的 Claude Code `2.1.68`。该版本的插件清单尚不识别新版 `userConfig` 字段，因此策略配置使用进程环境变量，不手工修改 Hook 设置。
-
-### `BASH_GUARD_MODE`
-
-四位八进制权限模式，默认 `0467`：
-
-```bash
-BASH_GUARD_MODE=4447 claude
-```
-
-### `BASH_GUARD_AUDIT_LOG`
-
-可选的审计日志文件。每次判定写入一条 JSON 记录：
-
-```bash
-BASH_GUARD_AUDIT_LOG="$HOME/.claude/bash-guard-audit.jsonl" claude
-```
-
-新版 Claude Code 已支持插件 `userConfig`。后续提高最低版本后，可把这两个环境变量迁移为官方安装/启用时的配置项。
-
-## 测试
-
-```bash
-python3 -m unittest discover -s plugins/bash-guard/tests -p 'test_*.py' -v
+BASH_GUARD_BINARY="$PWD/target/debug/bash-guard" claude --plugin-dir ./plugins/bash-guard
 claude plugin validate ./plugins/bash-guard
 claude plugin validate .
 ```
 
-## 企业强制部署
+## 发布与家酿
 
-普通用户安装的插件可以被用户禁用或卸载。若要形成组织级策略，应由管理员：
+发布工作流构建苹果芯片、英特尔苹果系统、Linux x86_64 与 Linux ARM64 的压缩包，并为每个压缩包生成 SHA-256 摘要。发布家酿配方时，将 `Formula/bash-guard.rb` 中的占位摘要替换为对应 `.sha256` 文件内容，再提交到家酿软件源。
 
-1. 在受管设置中通过 `extraKnownMarketplaces` 配置可信 Marketplace。
-2. 在受管设置的 `enabledPlugins` 中强制启用 `bash-guard@bash-guard-marketplace`。
-3. 配置 `strictKnownMarketplaces` 限制 Marketplace 来源。
-4. 配置 `disableSideloadFlags` 禁止通过启动参数侧载插件。
-5. 需要时启用 `allowManagedHooksOnly`；由受管设置强制启用的插件 Hook 仍可执行。
+## 企业部署
 
-插件 Hook 能阻止 Claude Code 的 Bash 工具调用，但不能防止拥有主机控制权的用户卸载插件、修改受管策略或直接在 Claude Code 外执行命令。
+普通用户安装的插件可以被用户禁用或卸载。如需组织级策略，请由管理员在受管设置中配置可信 Marketplace、强制启用插件、限制 Marketplace 来源并禁止侧载插件。插件 Hook 仅控制 Claude Code 的 Bash 工具调用，不能阻止拥有主机控制权的用户直接运行系统命令。
 
 ## 项目结构
 
 ```text
-.claude-plugin/marketplace.json
+src/
+├── main.rs       # Hook、审计、注册与状态管理
+└── policy.rs     # 与 Bash Agent 对齐的权限分类
 plugins/bash-guard/
-├── .claude-plugin/plugin.json
-├── hooks/hooks.json
-├── scripts/bash-guard
-├── lib/bash_guard/policy.py
-└── tests/test_policy.py
+└── scripts/bash-guard  # 仅负责启动二进制的失败关闭适配器
 ```
