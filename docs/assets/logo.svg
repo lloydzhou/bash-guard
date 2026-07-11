@@ -1,7 +1,16 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Bash Guard logo">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Bash Guard logo: protected terminal permissions">
   <rect width="96" height="96" rx="22" fill="#10151c"/>
-  <path d="M48 12 76 23v22c0 18-11 32-28 39C31 77 20 63 20 45V23l28-11Z" fill="#182632" stroke="#77a8ff" stroke-width="3" stroke-linejoin="round"/>
-  <path d="m33 38 10 9-10 9M51 57h13" fill="none" stroke="#eef2f7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="m31 63 9 8 25-28" fill="none" stroke="#42d39b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
-  <circle cx="76" cy="23" r="5" fill="#f59e68"/>
+  <path d="M48 11 77 23v21c0 19-11.5 33.5-29 41C30.5 77.5 19 63 19 44V23L48 11Z" fill="#182632" stroke="#77a8ff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="m29 31 7 6-7 6m12 0h9" fill="none" stroke="#eef2f7" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M27 49h42" stroke="#36506a" stroke-width="2" stroke-linecap="round"/>
+  <g font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="12" font-weight="700" text-anchor="middle">
+    <rect x="25" y="56" width="13" height="15" rx="3" fill="#213746" stroke="#77a8ff" stroke-width="1.5"/>
+    <text x="31.5" y="67.5" fill="#eef2f7">r</text>
+    <rect x="41.5" y="56" width="13" height="15" rx="3" fill="#213746" stroke="#77a8ff" stroke-width="1.5"/>
+    <text x="48" y="67.5" fill="#eef2f7">w</text>
+    <rect x="58" y="56" width="13" height="15" rx="3" fill="#213746" stroke="#42d39b" stroke-width="1.5"/>
+    <text x="64.5" y="67.5" fill="#42d39b">x</text>
+  </g>
+  <path d="m33 75 4 4 8-9" fill="none" stroke="#42d39b" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="77" cy="23" r="4.5" fill="#f59e68"/>
 </svg>

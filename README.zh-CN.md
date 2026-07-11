@@ -14,7 +14,7 @@
 
 [English](README.md) · [权限策略](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md) · [发布页](https://github.com/lloydzhou/claude-bash-guard/releases) · [Homebrew Tap](https://github.com/lloydzhou/homebrew-tap)
 
-**面向 Claude Code 的失败关闭 Bash 安全闸门。** Bash Guard 会在每次 Claude Code 调用 `Bash` 工具前检查命令；即使启用 `bypassPermissions` 或 `--dangerously-skip-permissions`，检查仍会执行。
+**面向 Claude Code 的失败关闭 Bash 安全闸门。** Bash Guard 借鉴 Linux 文件权限的表述方式，采用最小权限、显式授予和默认拒绝：敏感 Bash 能力未被策略明确允许时一律拒绝。它会在每次 Claude Code 调用 `Bash` 工具前检查命令；即使启用 `bypassPermissions` 或 `--dangerously-skip-permissions`，检查仍会执行。
 
 ```bash
 brew tap lloydzhou/tap
@@ -32,6 +32,7 @@ bash-guard claude status
 
 - **绕过权限时依然生效。** `PreToolUse` Hook 早于 Claude Code 的权限判定执行。
 - **失败关闭。** 二进制缺失、Hook 输入无效或审计写入失败时，都会拒绝 Bash 调用，绝不静默放行。
+- **借鉴权限语义的最小权限。** 策略使用类似 Linux 文件权限的权限位表达敏感能力；必须显式授予，未授予的能力保持拒绝。它是应用层策略模型，不会实现或修改操作系统文件权限。
 - **运行痕迹极小。** 注册只生成极小的本地 Claude Code 插件适配器，记录二进制路径，不复制二进制。
 - **按需审计。** 可选的 JSONL 审计日志记录每次判定、命令、调用方工作目录与所需权限。
 - **策略语义一致。** 命令分类和拒绝文案与 Bash Agent 使用同一份 Rust 策略实现。

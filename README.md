@@ -14,7 +14,7 @@
 
 [中文说明](README.zh-CN.md) · [Security policy](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md) · [Releases](https://github.com/lloydzhou/claude-bash-guard/releases) · [Homebrew Tap](https://github.com/lloydzhou/homebrew-tap)
 
-**A fail-closed Bash safety gate for Claude Code.** Bash Guard checks every Claude Code `Bash` tool call before it runs, including when Claude Code uses `bypassPermissions` or `--dangerously-skip-permissions`.
+**A fail-closed Bash safety gate for Claude Code.** Inspired by Linux file permissions, Bash Guard uses least privilege, explicit grants, and default deny: sensitive Bash capabilities are denied unless policy explicitly allows them. It checks every Claude Code `Bash` tool call before it runs, including when Claude Code uses `bypassPermissions` or `--dangerously-skip-permissions`.
 
 ```bash
 brew tap lloydzhou/tap
@@ -32,6 +32,7 @@ bash-guard claude status
 
 - **Still enforced when permissions are bypassed.** The `PreToolUse` Hook runs before Claude Code's permission decision.
 - **Fail closed.** A missing binary, invalid Hook input, or audit-write failure denies the Bash call instead of silently allowing it.
+- **Permission-inspired least privilege.** The policy expresses sensitive capabilities with Linux-file-permission-inspired bits; grants must be explicit, and ungranted capabilities stay denied. It is an application policy model, not an operating-system file-permission implementation.
 - **Small operational footprint.** Registration creates a minimal local Claude Code plugin adapter; it records the binary path and never copies the binary.
 - **Auditable when you need it.** Optional JSONL audit records capture each decision, command, caller working directory, and policy requirement.
 - **Shared policy semantics.** Command classification uses the same Rust policy implementation and denial wording as Bash Agent.
