@@ -9,7 +9,7 @@ permissions:
   contents: write
 
 jobs:
-  构建:
+  build:
     strategy:
       fail-fast: false
       matrix:
@@ -39,8 +39,8 @@ jobs:
         with:
           name: ${{ matrix.目标 }}
           path: dist/*
-  发布:
-    needs: 构建
+  release:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
