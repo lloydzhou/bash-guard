@@ -37,7 +37,7 @@ bash-guard claude status
 - **Fail closed.** A missing binary, invalid Hook input, or audit-write failure denies the Bash call instead of silently allowing it.
 - **Permission-inspired least privilege.** The policy expresses sensitive capabilities with Linux-file-permission-inspired bits; grants must be explicit, and ungranted capabilities stay denied. It is an application policy model, not an operating-system file-permission implementation.
 - **Small operational footprint.** Registration creates a minimal local Claude Code plugin adapter; it records the binary path and never copies the binary.
-- **Auditable by default.** JSONL audit records capture each decision, command, caller working directory, and policy requirement.
+- **Auditable by default.** JSONL audit records capture the client, each decision, command, caller working directory, and policy requirement.
 - **Shared policy semantics.** Command classification uses the same Rust policy implementation and denial wording as Bash Agent.
 
 ## Quick start
@@ -95,14 +95,14 @@ BASH_GUARD_MODE=4447 codex
 
 Invalid modes fail closed as `0000`.
 
-Audit logging is enabled by default and writes to `$HOME/.claude/bash-guard-audit.jsonl`, shared by both clients. To use another path, set `BASH_GUARD_AUDIT_LOG` before launching the client:
+Audit logging is enabled by default. Claude Code writes to `$HOME/.claude/bash-guard-audit.jsonl`; Codex writes to `$HOME/.codex/bash-guard-audit.jsonl`. To use another path, set `BASH_GUARD_AUDIT_LOG` before launching the client:
 
 ```bash
 BASH_GUARD_AUDIT_LOG="$HOME/logs/bash-guard.jsonl" codex
 tail -f "$HOME/logs/bash-guard.jsonl"
 ```
 
-Every line is one JSON object. `cwd` records the working directory supplied by the client for that tool call; it is useful for identifying the originating project and is not the path being accessed by the command. If the log directory cannot be created, written, or synchronized, Bash Guard denies the command.
+Every line is one JSON object and includes `client` (`claude` or `codex`), so a deliberately shared override path remains attributable. `cwd` records the working directory supplied by the client for that tool call; it is useful for identifying the originating project and is not the path being accessed by the command. If the log directory cannot be created, written, or synchronized, Bash Guard denies the command.
 
 A typical policy denial is:
 

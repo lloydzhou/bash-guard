@@ -86,24 +86,36 @@ check_env '无效权限模式失败关闭' \
   'BASH_GUARD_MODE=bad1'
 
 check_audit_path() {
-  name=$1
-  log=$2
-  env_spec=$3
+  client=$1
+  name=$2
+  log=$3
+  env_spec=$4
   rm -f "$log"
   input='{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"cat README.md"}}'
-  if ! actual=$(printf '%s' "$input" | env HOME="$tmp_home" $env_spec "$binary" claude hook); then
+  if ! actual=$(printf '%s' "$input" | env HOME="$tmp_home" $env_spec "$binary" "$client" hook); then
     printf '%s\n' "失败：$name（Hook 执行失败）" >&2
     fail=$((fail + 1))
   elif [ -n "$actual" ] || [ ! -s "$log" ]; then
     printf '%s\n' "失败：$name（未写入预期审计日志）" >&2
+    fail=$((fail + 1))
+  elif ! python3 - "$log" "$client" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as f:
+    record = json.loads(f.readline())
+assert record["client"] == sys.argv[2]
+PY
+  then
+    printf '%s\n' "失败：$name（审计来源字段不正确）" >&2
     fail=$((fail + 1))
   else
     pass=$((pass + 1))
   fi
 }
 
-check_audit_path '默认审计日志路径' "$tmp_home/.claude/bash-guard-audit.jsonl" ''
-check_audit_path '自定义审计日志路径' "$tmp_home/custom-audit.jsonl" "BASH_GUARD_AUDIT_LOG=$tmp_home/custom-audit.jsonl"
+check_audit_path claude 'Claude 默认审计日志路径' "$tmp_home/.claude/bash-guard-audit.jsonl" ''
+check_audit_path codex 'Codex 默认审计日志路径' "$tmp_home/.codex/bash-guard-audit.jsonl" ''
+check_audit_path codex '自定义审计日志路径' "$tmp_home/custom-audit.jsonl" "BASH_GUARD_AUDIT_LOG=$tmp_home/custom-audit.jsonl"
 
 if [ "$fail" -ne 0 ]; then
   exit 1

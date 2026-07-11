@@ -37,7 +37,7 @@ bash-guard claude status
 - **失败关闭。** 二进制缺失、Hook 输入无效或审计写入失败时，都会拒绝 Bash 调用，绝不静默放行。
 - **借鉴权限语义的最小权限。** 策略使用类似 Linux 文件权限的权限位表达敏感能力；必须显式授予，未授予的能力保持拒绝。它是应用层策略模型，不会实现或修改操作系统文件权限。
 - **运行痕迹极小。** 注册只生成极小的本地 Claude Code 插件适配器，记录二进制路径，不复制二进制。
-- **默认审计。** JSONL 审计日志记录每次判定、命令、调用方工作目录与所需权限。
+- **默认审计。** JSONL 审计日志记录客户端来源、每次判定、命令、调用方工作目录与所需权限。
 - **策略语义一致。** 命令分类和拒绝文案与 Bash Agent 使用同一份 Rust 策略实现。
 
 ## 三步开始
@@ -95,14 +95,14 @@ BASH_GUARD_MODE=4447 codex
 
 无效的权限模式会按 `0000` 失败关闭处理。
 
-审计日志默认启用，写入 `$HOME/.claude/bash-guard-audit.jsonl`，两个客户端共用该默认位置。如需使用其他路径，请在启动客户端前设置 `BASH_GUARD_AUDIT_LOG`：
+审计日志默认启用：Claude Code 写入 `$HOME/.claude/bash-guard-audit.jsonl`；Codex 写入 `$HOME/.codex/bash-guard-audit.jsonl`。如需使用其他路径，请在启动客户端前设置 `BASH_GUARD_AUDIT_LOG`：
 
 ```bash
 BASH_GUARD_AUDIT_LOG="$HOME/logs/bash-guard.jsonl" codex
 tail -f "$HOME/logs/bash-guard.jsonl"
 ```
 
-日志每行是一条 JSON 记录。`cwd` 是客户端为该工具调用提供的工作目录，用于识别命令从哪个项目发起，**并不是**命令实际访问的目标路径。若日志目录无法创建、日志无法写入或同步，Bash Guard 会拒绝该命令。
+日志每行是一条 JSON 记录，并含有 `client` 字段（`claude` 或 `codex`）；即使通过环境变量刻意让两个客户端共用同一日志，仍可追溯来源。`cwd` 是客户端为该工具调用提供的工作目录，用于识别命令从哪个项目发起，**并不是**命令实际访问的目标路径。若日志目录无法创建、日志无法写入或同步，Bash Guard 会拒绝该命令。
 
 典型的策略拒绝信息：
 

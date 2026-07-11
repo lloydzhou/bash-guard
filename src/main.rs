@@ -32,7 +32,7 @@ fn run() -> Result<(), String> {
         [client, subcommand]
             if matches!(client.as_str(), "claude" | "codex") && subcommand == "hook" =>
         {
-            hook()
+            hook(client)
         }
         [client, command, rest @ ..] if client == "claude" => claude_command(command, rest),
         [client, command, rest @ ..] if client == "codex" => codex_command(command, rest),
@@ -40,7 +40,7 @@ fn run() -> Result<(), String> {
     }
 }
 
-fn hook() -> Result<(), String> {
+fn hook(client: &str) -> Result<(), String> {
     let mut payload = Vec::new();
     io::stdin()
         .take(MAX_HOOK_INPUT_BYTES + 1)
@@ -86,6 +86,7 @@ fn hook() -> Result<(), String> {
     let decision = policy::evaluate(command, cwd, env::var("BASH_GUARD_MODE").ok().as_deref());
     let audit = json!({
         "time": OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_else(|_| "时间格式化失败".to_string()),
+        "client": client,
         "session_id": event.get("session_id"),
         "tool_use_id": event.get("tool_use_id"),
         "permission_mode": event.get("permission_mode"),
@@ -96,7 +97,7 @@ fn hook() -> Result<(), String> {
         "required_mode": decision.required_mode,
         "reason": decision.reason,
     });
-    if let Err(error) = audit_log_path().and_then(|path| append_audit(path, &audit)) {
+    if let Err(error) = audit_log_path(client).and_then(|path| append_audit(path, &audit)) {
         emit_deny(&format!(
             "Bash Guard 审计日志写入失败，已按失败关闭处理：{error}"
         ));
@@ -122,14 +123,19 @@ fn emit_deny(reason: &str) {
     );
 }
 
-fn audit_log_path() -> Result<PathBuf, String> {
+fn audit_log_path(client: &str) -> Result<PathBuf, String> {
     if let Some(path) = env::var_os("BASH_GUARD_AUDIT_LOG").filter(|path| !path.is_empty()) {
         return expand_path(PathBuf::from(path));
     }
     let home =
         env::var_os("HOME").ok_or_else(|| "未设置 HOME，无法确定审计日志路径".to_string())?;
+    let client_dir = match client {
+        "claude" => ".claude",
+        "codex" => ".codex",
+        _ => return Err(format!("未知审计客户端：{client}")),
+    };
     Ok(PathBuf::from(home)
-        .join(".claude")
+        .join(client_dir)
         .join(DEFAULT_AUDIT_LOG_FILE))
 }
 
