@@ -68,9 +68,9 @@ claude plugin validate ./plugins/bash-guard
 claude plugin validate .
 ```
 
-## 发布与家酿
+## 发布与 Homebrew
 
-发布工作流构建苹果芯片、英特尔苹果系统、Linux x86_64 与 Linux ARM64 的压缩包，并为每个压缩包生成 SHA-256 摘要。发布家酿配方时，将 `Formula/bash-guard.rb` 中的占位摘要替换为对应 `.sha256` 文件内容，再提交到家酿软件源。
+发布工作流构建苹果芯片、英特尔苹果系统、Linux x86_64 与 Linux ARM64 的压缩包，并为每个压缩包生成 SHA-256 摘要。更新 Homebrew 配方时，将 Homebrew Tap 中 `Formula/bash-guard.rb` 的占位摘要替换为对应 `.sha256` 文件内容，然后提交到 Tap 仓库。
 
 ## 企业部署
 
