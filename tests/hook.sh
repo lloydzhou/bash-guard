@@ -5,11 +5,14 @@ binary=${1:-./target/debug/bash-guard}
 pass=0
 fail=0
 
+tmp_home=$(mktemp -d)
+trap 'rm -rf "$tmp_home"' EXIT HUP INT TERM
+
 check() {
   name=$1
   input=$2
   expected=$3
-  actual=$(printf '%s' "$input" | "$binary" claude hook)
+  actual=$(printf '%s' "$input" | env HOME="$tmp_home" "$binary" claude hook)
   if [ "$actual" = "$expected" ]; then
     pass=$((pass + 1))
   else
@@ -31,6 +34,26 @@ check '无效输入失败关闭' \
 check '允许命令无输出' \
   '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"cat README.md"}}' \
   ''
+
+check_audit_path() {
+  name=$1
+  log=$2
+  env_spec=$3
+  rm -f "$log"
+  input='{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"cat README.md"}}'
+  if ! actual=$(printf '%s' "$input" | env HOME="$tmp_home" $env_spec "$binary" claude hook); then
+    printf '%s\n' "失败：$name（Hook 执行失败）" >&2
+    fail=$((fail + 1))
+  elif [ -n "$actual" ] || [ ! -s "$log" ]; then
+    printf '%s\n' "失败：$name（未写入预期审计日志）" >&2
+    fail=$((fail + 1))
+  else
+    pass=$((pass + 1))
+  fi
+}
+
+check_audit_path '默认审计日志路径' "$tmp_home/.claude/bash-guard-audit.jsonl" ''
+check_audit_path '自定义审计日志路径' "$tmp_home/custom-audit.jsonl" "BASH_GUARD_AUDIT_LOG=$tmp_home/custom-audit.jsonl"
 
 if [ "$fail" -ne 0 ]; then
   exit 1

@@ -78,12 +78,11 @@ BASH_GUARD_MODE=4447 claude
 
 Invalid modes fail closed as `0000`.
 
-Audit logging is **disabled by default**. To enable it, set a non-empty log path before launching Claude Code:
+Audit logging is enabled by default and writes to `$HOME/.claude/bash-guard-audit.jsonl`. To use another path, set `BASH_GUARD_AUDIT_LOG` before launching Claude Code:
 
 ```bash
-export BASH_GUARD_AUDIT_LOG="$HOME/.claude/bash-guard-audit.jsonl"
-claude
-tail -f "$BASH_GUARD_AUDIT_LOG"
+BASH_GUARD_AUDIT_LOG="$HOME/logs/bash-guard.jsonl" claude
+tail -f "$HOME/logs/bash-guard.jsonl"
 ```
 
 Every line is one JSON object. `cwd` records the working directory supplied by Claude Code for that tool call; it is useful for identifying the originating project and is not the path being accessed by the command. If the log directory cannot be created, written, or synchronized, Bash Guard denies the command.

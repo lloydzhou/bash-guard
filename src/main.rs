@@ -12,6 +12,7 @@ use time::{OffsetDateTime, format_description::well_known::Rfc3339};
 const MARKETPLACE_NAME: &str = "bash-guard-marketplace";
 const PLUGIN_NAME: &str = "bash-guard";
 const MAX_HOOK_INPUT_BYTES: u64 = 1024 * 1024;
+const DEFAULT_AUDIT_LOG_FILE: &str = "bash-guard-audit.jsonl";
 
 fn main() -> ExitCode {
     match run() {
@@ -88,7 +89,7 @@ fn hook() -> Result<(), String> {
         "required_mode": decision.required_mode,
         "reason": decision.reason,
     });
-    if let Err(error) = append_audit(env::var_os("BASH_GUARD_AUDIT_LOG"), &audit) {
+    if let Err(error) = audit_log_path().and_then(|path| append_audit(path, &audit)) {
         emit_deny(&format!(
             "Bash Guard 审计日志写入失败，已按失败关闭处理：{error}"
         ));
@@ -114,11 +115,19 @@ fn emit_deny(reason: &str) {
     );
 }
 
-fn append_audit(path: Option<std::ffi::OsString>, record: &Value) -> Result<(), String> {
-    let Some(path) = path.filter(|path| !path.is_empty()) else {
-        return Ok(());
-    };
-    let path = expand_path(PathBuf::from(path))?;
+fn audit_log_path() -> Result<PathBuf, String> {
+    if let Some(path) = env::var_os("BASH_GUARD_AUDIT_LOG").filter(|path| !path.is_empty()) {
+        return expand_path(PathBuf::from(path));
+    }
+    let home =
+        env::var_os("HOME").ok_or_else(|| "未设置 HOME，无法确定审计日志路径".to_string())?;
+    Ok(PathBuf::from(home)
+        .join(".claude")
+        .join(DEFAULT_AUDIT_LOG_FILE))
+}
+
+fn append_audit(path: PathBuf, record: &Value) -> Result<(), String> {
+    let path = expand_path(path)?;
     let parent = path
         .parent()
         .ok_or_else(|| "审计日志路径没有父目录".to_string())?;

@@ -78,12 +78,11 @@ BASH_GUARD_MODE=4447 claude
 
 无效的权限模式会按 `0000` 失败关闭处理。
 
-审计日志**默认关闭**。请在启动 Claude Code 前设置非空日志路径：
+审计日志默认启用，写入 `$HOME/.claude/bash-guard-audit.jsonl`。如需使用其他路径，请在启动 Claude Code 前设置 `BASH_GUARD_AUDIT_LOG`：
 
 ```bash
-export BASH_GUARD_AUDIT_LOG="$HOME/.claude/bash-guard-audit.jsonl"
-claude
-tail -f "$BASH_GUARD_AUDIT_LOG"
+BASH_GUARD_AUDIT_LOG="$HOME/logs/bash-guard.jsonl" claude
+tail -f "$HOME/logs/bash-guard.jsonl"
 ```
 
 日志每行是一条 JSON 记录。`cwd` 是 Claude Code 为该工具调用提供的工作目录，用于识别命令从哪个项目发起，**并不是**命令实际访问的目标路径。若日志目录无法创建、日志无法写入或同步，Bash Guard 会拒绝该命令。
