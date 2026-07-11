@@ -7,8 +7,8 @@
         "hooks": [
           {
             "type": "command",
-            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bash-guard",
-            "args": [],
+            "command": "bash-guard",
+            "args": ["claude", "hook"],
             "timeout": 5,
             "statusMessage": "正在检查 Bash 命令权限"
           }

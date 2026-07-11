@@ -418,38 +418,26 @@ fn write_adapter(root: &Path, binary: &Path) -> Result<(), String> {
     let plugin = root.join("plugins/bash-guard");
     fs::create_dir_all(plugin.join(".claude-plugin")).map_err(|error| error.to_string())?;
     fs::create_dir_all(plugin.join("hooks")).map_err(|error| error.to_string())?;
-    fs::create_dir_all(plugin.join("scripts")).map_err(|error| error.to_string())?;
     write_file(
         &root.join(".claude-plugin/marketplace.json"),
         &format!(
-            r#"{{"$schema":"https://json.schemastore.org/claude-code-marketplace.json","name":"{MARKETPLACE_NAME}","owner":{{"name":"bash-agent maintainers"}},"metadata":{{"description":"Bash Guard 本地适配插件源"}},"plugins":[{{"name":"{PLUGIN_NAME}","source":"./plugins/bash-guard","description":"在 Bash 执行前实施权限策略","version":"0.1.1"}}]}}
+            r#"{{"$schema":"https://json.schemastore.org/claude-code-marketplace.json","name":"{MARKETPLACE_NAME}","owner":{{"name":"bash-agent maintainers"}},"metadata":{{"description":"Bash Guard 本地适配插件源"}},"plugins":[{{"name":"{PLUGIN_NAME}","source":"./plugins/bash-guard","description":"在 Bash 执行前实施权限策略","version":"0.1.2"}}]}}
 "#
         ),
     )?;
     write_file(
         &plugin.join(".claude-plugin/plugin.json"),
-        r#"{"name":"bash-guard","version":"0.1.1","description":"Bash Guard 本地失败关闭适配器","author":{"name":"bash-agent maintainers"},"license":"MIT"}
+        r#"{"name":"bash-guard","version":"0.1.2","description":"Bash Guard 本地失败关闭适配器","author":{"name":"bash-agent maintainers"},"license":"MIT"}
 "#,
     )?;
     write_file(
         &plugin.join("hooks/hooks.json"),
-        r#"{"description":"在 Claude Code 执行 Bash 工具前检查命令权限","hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"${CLAUDE_PLUGIN_ROOT}/scripts/bash-guard","args":[],"timeout":5,"statusMessage":"正在检查 Bash 命令权限"}]}]}}
+        &format!(
+            r#"{{"description":"在 Claude Code 执行 Bash 工具前检查命令权限","hooks":{{"PreToolUse":[{{"matcher":"Bash","hooks":[{{"type":"command","command":{},"args":["claude","hook"],"timeout":5,"statusMessage":"正在检查 Bash 命令权限"}}]}}]}}}}
 "#,
+            serde_json::to_string(&binary.to_string_lossy()).map_err(|error| error.to_string())?
+        ),
     )?;
-    let launcher = format!(
-        "#!/bin/sh\nset -eu\nBASH_GUARD_BIN={}\nemit_deny() {{\n  printf '%s\\n' '{{\"hookSpecificOutput\":{{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Bash Guard 启动器无法执行安全检查，已按失败关闭处理\"}}}}'\n}}\nif [ ! -x \"$BASH_GUARD_BIN\" ]; then\n  emit_deny\n  exit 0\nfi\ntmp=$(mktemp \"${{TMPDIR:-/tmp}}/bash-guard-hook.XXXXXX\") || {{ emit_deny; exit 0; }}\ntrap 'rm -f \"$tmp\"' EXIT HUP INT TERM\nif ! \"$BASH_GUARD_BIN\" claude hook >\"$tmp\"; then\n  emit_deny\n  exit 0\nfi\ncat \"$tmp\"\n",
-        shell_quote(binary)
-    );
-    write_file(&plugin.join("scripts/bash-guard"), &launcher)?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(
-            plugin.join("scripts/bash-guard"),
-            fs::Permissions::from_mode(0o755),
-        )
-        .map_err(|error| error.to_string())?;
-    }
     Ok(())
 }
 
@@ -473,9 +461,4 @@ fn write_file(path: &Path, contents: &str) -> Result<(), String> {
         .map_err(|error| format!("写入 {} 失败：{error}", path.display()))?;
     file.sync_all()
         .map_err(|error| format!("同步 {} 失败：{error}", path.display()))
-}
-
-fn shell_quote(path: &Path) -> String {
-    let path = path.to_string_lossy();
-    format!("'{}'", path.replace('\'', "'\\\"'\\\"'"))
 }

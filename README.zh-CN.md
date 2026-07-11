@@ -34,7 +34,7 @@ bash-guard claude status
 - **失败关闭。** 二进制缺失、Hook 输入无效或审计写入失败时，都会拒绝 Bash 调用，绝不静默放行。
 - **借鉴权限语义的最小权限。** 策略使用类似 Linux 文件权限的权限位表达敏感能力；必须显式授予，未授予的能力保持拒绝。它是应用层策略模型，不会实现或修改操作系统文件权限。
 - **运行痕迹极小。** 注册只生成极小的本地 Claude Code 插件适配器，记录二进制路径，不复制二进制。
-- **按需审计。** 可选的 JSONL 审计日志记录每次判定、命令、调用方工作目录与所需权限。
+- **默认审计。** JSONL 审计日志记录每次判定、命令、调用方工作目录与所需权限。
 - **策略语义一致。** 命令分类和拒绝文案与 Bash Agent 使用同一份 Rust 策略实现。
 
 ## 三步开始
@@ -125,10 +125,10 @@ printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp/proj
   ./target/debug/bash-guard claude hook
 ```
 
-直接测试仓库适配器前，先构建二进制，并将 `bash-guard` 放入 `PATH`，或设置 `BASH_GUARD_BINARY`：
+直接测试仓库适配器前，先构建二进制，并将调试二进制以 `bash-guard` 名称加入 `PATH`：
 
 ```bash
-BASH_GUARD_BINARY="$PWD/target/debug/bash-guard" claude --plugin-dir ./plugins/bash-guard
+PATH="$PWD/target/debug:$PATH" claude --plugin-dir ./plugins/bash-guard
 claude plugin validate ./plugins/bash-guard
 claude plugin validate .
 ```
@@ -140,7 +140,7 @@ src/
 ├── main.rs       # Hook 协议、审计、注册与状态管理
 └── policy.rs     # 与 Bash Agent 对齐的权限分类
 plugins/bash-guard/
-└── scripts/bash-guard  # 仅负责失败关闭启动二进制
+└── hooks/hooks.json  # 直接调用 bash-guard claude hook
 ```
 
 采用 [MIT 许可证](LICENSE)。

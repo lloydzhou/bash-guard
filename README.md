@@ -34,7 +34,7 @@ bash-guard claude status
 - **Fail closed.** A missing binary, invalid Hook input, or audit-write failure denies the Bash call instead of silently allowing it.
 - **Permission-inspired least privilege.** The policy expresses sensitive capabilities with Linux-file-permission-inspired bits; grants must be explicit, and ungranted capabilities stay denied. It is an application policy model, not an operating-system file-permission implementation.
 - **Small operational footprint.** Registration creates a minimal local Claude Code plugin adapter; it records the binary path and never copies the binary.
-- **Auditable when you need it.** Optional JSONL audit records capture each decision, command, caller working directory, and policy requirement.
+- **Auditable by default.** JSONL audit records capture each decision, command, caller working directory, and policy requirement.
 - **Shared policy semantics.** Command classification uses the same Rust policy implementation and denial wording as Bash Agent.
 
 ## Quick start
@@ -125,10 +125,10 @@ printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp/proj
   ./target/debug/bash-guard claude hook
 ```
 
-To test the repository adapter directly, build the binary first and either expose `bash-guard` on `PATH` or set `BASH_GUARD_BINARY`:
+To test the repository adapter directly, build the binary first and expose the debug binary as `bash-guard` on `PATH`:
 
 ```bash
-BASH_GUARD_BINARY="$PWD/target/debug/bash-guard" claude --plugin-dir ./plugins/bash-guard
+PATH="$PWD/target/debug:$PATH" claude --plugin-dir ./plugins/bash-guard
 claude plugin validate ./plugins/bash-guard
 claude plugin validate .
 ```
@@ -140,7 +140,7 @@ src/
 ├── main.rs       # Hook protocol, audit logging, registration, and status
 └── policy.rs     # Permission classification aligned with Bash Agent
 plugins/bash-guard/
-└── scripts/bash-guard  # Fail-closed binary launcher only
+└── hooks/hooks.json  # Directly invokes bash-guard claude hook
 ```
 
 Licensed under the [MIT License](LICENSE).
