@@ -1,73 +1,119 @@
 # Bash Guard
 
-Bash Guard 是独立分发的 Rust 安全程序。它通过 Claude Code 的 `PreToolUse` Hook，在 `Bash` 工具执行前按权限模式分类命令并在超出允许范围时拒绝执行。
+[中文说明](README.zh-CN.md) · [Security policy](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md) · [Releases](https://github.com/lloydzhou/claude-bash-guard/releases) · [Homebrew Tap](https://github.com/lloydzhou/homebrew-tap)
 
-Hook 在 Claude Code 权限模式检查之前运行，因此即使启用 `bypassPermissions` 或 `--dangerously-skip-permissions`，策略拒绝仍然生效。
+**A fail-closed Bash safety gate for Claude Code.** Bash Guard checks every Claude Code `Bash` tool call before it runs, including when Claude Code uses `bypassPermissions` or `--dangerously-skip-permissions`.
 
-> 权限模型、分类边界、推荐模式和完整示例由 [Bash Agent 的 Bash 工具权限策略文档](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md) 统一维护。Bash Guard 直接使用同一套 Rust 分类规则，不在此重复维护策略细节。
+```bash
+brew tap lloydzhou/tap
+brew install bash-guard
+bash-guard claude register --scope user
+```
 
-## 安装与注册
+After registration, verify the installation:
 
-使用 [Homebrew Tap](https://github.com/lloydzhou/homebrew-tap) 安装：
+```bash
+bash-guard claude status
+```
+
+## Why Bash Guard
+
+- **Still enforced when permissions are bypassed.** The `PreToolUse` Hook runs before Claude Code's permission decision.
+- **Fail closed.** A missing binary, invalid Hook input, or audit-write failure denies the Bash call instead of silently allowing it.
+- **Small operational footprint.** Registration creates a minimal local Claude Code plugin adapter; it records the binary path and never copies the binary.
+- **Auditable when you need it.** Optional JSONL audit records capture each decision, command, caller working directory, and policy requirement.
+- **Shared policy semantics.** Command classification uses the same Rust policy implementation and denial wording as Bash Agent.
+
+## Quick start
+
+### 1. Install
+
+Homebrew:
 
 ```bash
 brew tap lloydzhou/tap
 brew install bash-guard
 ```
 
-也可从 [GitHub Releases](https://github.com/lloydzhou/claude-bash-guard/releases) 下载压缩包安装。安装后，执行注册命令：
+Or download the archive for your platform from [GitHub Releases](https://github.com/lloydzhou/claude-bash-guard/releases).
+
+### 2. Register with Claude Code
 
 ```bash
 bash-guard claude register --scope user
 ```
 
-注册命令会生成一个极小的本地 Claude Code 插件源、调用 Claude Code 官方插件命令完成安装，并记录二进制绝对路径；它不会复制二进制。支持的作用域为 `user`、`project` 与 `local`，默认 `user`。
+Scopes are `user`, `project`, and `local`; `user` is the default. Registration uses the official Claude Code plugin CLI to add a local Marketplace and install the adapter.
 
-检查状态：
+### 3. Check it
 
 ```bash
 bash-guard claude status
 ```
 
-取消注册后再卸载系统包：
+Start Claude Code normally. Bash Guard is invoked automatically for each `Bash` tool call in the registered scope.
+
+## Configure policy and audit logging
+
+The default policy mode is `0467`. See the [Bash tool policy](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md) for permission bits, command categories, recommended modes, and examples.
+
+Set a mode only for the Claude Code process you start:
 
 ```bash
-bash-guard claude unregister --scope user
-```
-
-注册的适配器在二进制缺失、不可执行或异常退出时会明确拒绝 Bash，绝不静默放行。
-
-## 配置与审计
-
-保留原有环境变量兼容性：
-
-```bash
-# 默认值为 0467；权限位的含义见 Bash Agent 策略文档。
 BASH_GUARD_MODE=4447 claude
-
-# 每次判定追加一条 JSONL 审计记录；无法写入时按失败关闭处理。
-BASH_GUARD_AUDIT_LOG="$HOME/.claude/bash-guard-audit.jsonl" claude
 ```
 
-无效权限模式按 `0000` 处理。拒绝策略命令时，信息与 Bash Agent 保持一致：
+Invalid modes fail closed as `0000`.
+
+Audit logging is **disabled by default**. To enable it, set a non-empty log path before launching Claude Code:
+
+```bash
+export BASH_GUARD_AUDIT_LOG="$HOME/.claude/bash-guard-audit.jsonl"
+claude
+tail -f "$BASH_GUARD_AUDIT_LOG"
+```
+
+Every line is one JSON object. `cwd` records the working directory supplied by Claude Code for that tool call; it is useful for identifying the originating project and is not the path being accessed by the command. If the log directory cannot be created, written, or synchronized, Bash Guard denies the command.
+
+A typical policy denial is:
 
 ```text
 command blocked by bash safety policy (required=4000 allowed=0467; mode=system/external/network/workspace bits=4:read,2:write,1:execute)
 ```
 
-## 本地开发
+## Manage registration
+
+```bash
+# Remove the Claude Code integration.
+bash-guard claude unregister --scope user
+
+# Then remove the Homebrew package, if desired.
+brew uninstall bash-guard
+```
+
+For automation or nonstandard installations:
+
+- `BASH_GUARD_BINARY` overrides the binary path recorded by registration.
+- `BASH_GUARD_STATE_DIR` overrides the registration directory (default: `~/.claude/bash-guard`).
+
+## Security boundaries
+
+Bash Guard protects only `Bash` tool calls issued through Claude Code. A user who controls the host can still run shell commands directly, alter their own Claude Code installation, or remove a user-installed plugin.
+
+For organization-wide enforcement, administrators should use managed Claude Code settings to restrict Marketplace sources, configure a trusted Marketplace, require the plugin, and prevent sideloaded plugins where appropriate.
+
+## Development
 
 ```bash
 cargo fmt --check
 cargo test
 cargo build --release
 
-# 直接以当前构建产物验证 Hook 协议。
 printf '%s' '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/tmp/project","tool_input":{"command":"cat README.md"}}' \
   ./target/debug/bash-guard claude hook
 ```
 
-开发时可用以下方式直接加载仓库插件适配器；需先构建并让 `bash-guard` 位于 `PATH`，或设置 `BASH_GUARD_BINARY`：
+To test the repository adapter directly, build the binary first and either expose `bash-guard` on `PATH` or set `BASH_GUARD_BINARY`:
 
 ```bash
 BASH_GUARD_BINARY="$PWD/target/debug/bash-guard" claude --plugin-dir ./plugins/bash-guard
@@ -75,20 +121,14 @@ claude plugin validate ./plugins/bash-guard
 claude plugin validate .
 ```
 
-## 发布与 Homebrew
-
-发布工作流构建苹果芯片、英特尔苹果系统、Linux x86_64 与 Linux ARM64 的压缩包，并为每个压缩包生成 SHA-256 摘要。Homebrew 配方维护在 [lloydzhou/homebrew-tap](https://github.com/lloydzhou/homebrew-tap)。
-
-## 企业部署
-
-普通用户安装的插件可以被用户禁用或卸载。如需组织级策略，请由管理员在受管设置中配置可信 Marketplace、强制启用插件、限制 Marketplace 来源并禁止侧载插件。插件 Hook 仅控制 Claude Code 的 Bash 工具调用，不能阻止拥有主机控制权的用户直接运行系统命令。
-
-## 项目结构
+## Project layout
 
 ```text
 src/
-├── main.rs       # Hook、审计、注册与状态管理
-└── policy.rs     # 与 Bash Agent 对齐的权限分类
+├── main.rs       # Hook protocol, audit logging, registration, and status
+└── policy.rs     # Permission classification aligned with Bash Agent
 plugins/bash-guard/
-└── scripts/bash-guard  # 仅负责启动二进制的失败关闭适配器
+└── scripts/bash-guard  # Fail-closed binary launcher only
 ```
+
+Licensed under the [MIT License](LICENSE).
