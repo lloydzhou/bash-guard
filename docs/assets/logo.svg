@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 96 96" role="img" aria-label="Bash Guard logo">
+  <rect width="96" height="96" rx="22" fill="#10151c"/>
+  <path d="M48 12 76 23v22c0 18-11 32-28 39C31 77 20 63 20 45V23l28-11Z" fill="#182632" stroke="#77a8ff" stroke-width="3" stroke-linejoin="round"/>
+  <path d="m33 38 10 9-10 9M51 57h13" fill="none" stroke="#eef2f7" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="m31 63 9 8 25-28" fill="none" stroke="#42d39b" stroke-width="5" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="76" cy="23" r="5" fill="#f59e68"/>
+</svg>

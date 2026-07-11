@@ -1,4 +1,16 @@
+<p align="center">
+  <img src="docs/assets/logo.svg" alt="Bash Guard logo" width="112" height="112">
+</p>
+
 # Bash Guard
+
+<p align="center">
+  <img alt="Rust" src="https://img.shields.io/badge/Rust-safety_runtime-dea584?logo=rust&logoColor=white">
+  <img alt="Claude Code Hook" src="https://img.shields.io/badge/Claude_Code-PreToolUse_Hook-77a8ff">
+  <img alt="fail closed" src="https://img.shields.io/badge/security-fail--closed-42d39b">
+  <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-42d39b">
+  <img alt="status preview" src="https://img.shields.io/badge/status-preview-f59e68">
+</p>
 
 [中文说明](README.zh-CN.md) · [Security policy](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md) · [Releases](https://github.com/lloydzhou/claude-bash-guard/releases) · [Homebrew Tap](https://github.com/lloydzhou/homebrew-tap)
 
