@@ -13,6 +13,8 @@ const MARKETPLACE_NAME: &str = "bash-guard-marketplace";
 const PLUGIN_NAME: &str = "bash-guard";
 const MAX_HOOK_INPUT_BYTES: u64 = 1024 * 1024;
 const DEFAULT_AUDIT_LOG_FILE: &str = "bash-guard-audit.jsonl";
+const CODEX_HOOK_MARKER: &str = "Bash Guard: checking Bash command permissions";
+const CODEX_STATE_FILE_PREFIX: &str = "registration-";
 
 fn main() -> ExitCode {
     match run() {
@@ -27,9 +29,14 @@ fn main() -> ExitCode {
 fn run() -> Result<(), String> {
     let args: Vec<String> = env::args().skip(1).collect();
     match args.as_slice() {
-        [claude, subcommand] if claude == "claude" && subcommand == "hook" => hook(),
-        [claude, command, rest @ ..] if claude == "claude" => claude_command(command, rest),
-        _ => Err("用法：bash-guard claude <hook|register|unregister|status> [--scope user|project|local]".to_string()),
+        [client, subcommand]
+            if matches!(client.as_str(), "claude" | "codex") && subcommand == "hook" =>
+        {
+            hook()
+        }
+        [client, command, rest @ ..] if client == "claude" => claude_command(command, rest),
+        [client, command, rest @ ..] if client == "codex" => codex_command(command, rest),
+        _ => Err("用法：bash-guard <claude|codex> <hook|register|unregister|status> [--scope user|project|local]".to_string()),
     }
 }
 
@@ -152,6 +159,16 @@ fn claude_command(command: &str, args: &[String]) -> Result<(), String> {
     }
 }
 
+fn codex_command(command: &str, args: &[String]) -> Result<(), String> {
+    let scope = parse_codex_scope(args)?;
+    match command {
+        "register" => register_codex(&scope),
+        "unregister" => unregister_codex(&scope),
+        "status" => status_codex(&scope),
+        _ => Err("未知 Codex 子命令；可用值为 hook、register、unregister、status".to_string()),
+    }
+}
+
 fn parse_scope(args: &[String]) -> Result<String, String> {
     match args {
         [] => Ok("user".to_string()),
@@ -161,6 +178,16 @@ fn parse_scope(args: &[String]) -> Result<String, String> {
             Ok(scope.clone())
         }
         _ => Err("作用域必须是 --scope user、--scope project 或 --scope local".to_string()),
+    }
+}
+
+fn parse_codex_scope(args: &[String]) -> Result<String, String> {
+    match args {
+        [] => Ok("user".to_string()),
+        [flag, scope] if flag == "--scope" && matches!(scope.as_str(), "user" | "project") => {
+            Ok(scope.clone())
+        }
+        _ => Err("Codex 作用域必须是 --scope user 或 --scope project".to_string()),
     }
 }
 
@@ -262,6 +289,280 @@ fn status() -> Result<(), String> {
             "记录的作用域：{}",
             state.get("scope").and_then(Value::as_str).unwrap_or("未知")
         );
+    }
+    Ok(())
+}
+
+fn register_codex(scope: &str) -> Result<(), String> {
+    let binary = stable_binary_path()?;
+    let config = codex_hooks_path(scope)?;
+    let mut root = read_codex_hooks_config(&config)?;
+    let hooks = root
+        .as_object_mut()
+        .expect("已验证 Codex Hook 配置根节点为对象")
+        .entry("hooks")
+        .or_insert_with(|| json!({}));
+    let hooks = hooks
+        .as_object_mut()
+        .ok_or_else(|| format!("Codex Hook 配置 {} 的 hooks 必须是对象", config.display()))?;
+    let pre_tool_use = hooks.entry("PreToolUse").or_insert_with(|| json!([]));
+    let entries = pre_tool_use.as_array_mut().ok_or_else(|| {
+        format!(
+            "Codex Hook 配置 {} 的 hooks.PreToolUse 必须是数组",
+            config.display()
+        )
+    })?;
+    let command = codex_hook_command(&binary);
+    let entry = codex_hook_entry(&command);
+    if !entries
+        .iter()
+        .any(|existing| is_our_codex_hook(existing, &command))
+    {
+        entries.push(entry);
+        write_json_file(&config, &root)?;
+    }
+    write_codex_registration_state(scope, &binary, &config)?;
+    println!(
+        "Bash Guard 已注册到 Codex：作用域 {scope}，配置 {}，二进制 {}",
+        config.display(),
+        binary.display()
+    );
+    Ok(())
+}
+
+fn unregister_codex(scope: &str) -> Result<(), String> {
+    let state_path = codex_registration_state_path(scope)?;
+    let state = fs::read_to_string(&state_path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    let binary = state
+        .as_ref()
+        .and_then(|value| value.get("binary"))
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .ok_or_else(|| "未找到 Codex 注册记录的二进制路径，拒绝修改 Hook 配置".to_string())?;
+    let config = state
+        .as_ref()
+        .and_then(|value| value.get("config"))
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .ok_or_else(|| "未找到 Codex 注册记录的配置路径，拒绝修改 Hook 配置".to_string())?;
+    if config.exists() {
+        let mut root = read_codex_hooks_config(&config)?;
+        let command = codex_hook_command(&binary);
+        let mut changed = false;
+        if let Some(entries) = root
+            .get_mut("hooks")
+            .and_then(Value::as_object_mut)
+            .and_then(|hooks| hooks.get_mut("PreToolUse"))
+            .and_then(Value::as_array_mut)
+        {
+            entries.retain_mut(|entry| {
+                if entry.get("matcher").and_then(Value::as_str) != Some("^Bash$") {
+                    return true;
+                }
+                let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
+                    return true;
+                };
+                let old_len = hooks.len();
+                hooks.retain(|hook| !is_our_codex_command_hook(hook, &command));
+                if hooks.len() == old_len {
+                    return true;
+                }
+                changed = true;
+                !hooks.is_empty()
+            });
+        }
+        if changed {
+            if codex_hooks_config_is_empty(&root) {
+                fs::remove_file(&config)
+                    .map_err(|error| format!("删除 {} 失败：{error}", config.display()))?;
+                remove_empty_parent(&config)?;
+            } else {
+                write_json_file(&config, &root)?;
+            }
+        }
+    }
+    let _ = fs::remove_file(&state_path);
+    println!("Bash Guard 已从 Codex 取消注册：作用域 {scope}");
+    Ok(())
+}
+
+fn status_codex(scope: &str) -> Result<(), String> {
+    let state_path = codex_registration_state_path(scope)?;
+    let state = fs::read_to_string(&state_path)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok());
+    let config = state
+        .as_ref()
+        .and_then(|value| value.get("config"))
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .unwrap_or(codex_hooks_path(scope)?);
+    let binary = state
+        .as_ref()
+        .and_then(|value| value.get("binary"))
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .unwrap_or(stable_binary_path()?);
+    let registered = config
+        .exists()
+        .then(|| read_codex_hooks_config(&config))
+        .transpose()?
+        .is_some_and(|root| {
+            root.get("hooks")
+                .and_then(Value::as_object)
+                .and_then(|hooks| hooks.get("PreToolUse"))
+                .and_then(Value::as_array)
+                .is_some_and(|entries| {
+                    entries
+                        .iter()
+                        .any(|entry| is_our_codex_hook(entry, &codex_hook_command(&binary)))
+                })
+        });
+    println!("二进制：{}", binary.display());
+    println!("配置：{}", config.display());
+    println!("作用域：{scope}");
+    println!("钩子：{}", if registered { "已注册" } else { "未注册" });
+    Ok(())
+}
+
+fn codex_hooks_path(scope: &str) -> Result<PathBuf, String> {
+    match scope {
+        "user" => {
+            let home = env::var_os("HOME")
+                .ok_or_else(|| "未设置 HOME，无法确定 Codex 用户配置路径".to_string())?;
+            Ok(PathBuf::from(home).join(".codex/hooks.json"))
+        }
+        "project" => Ok(codex_project_root()?.join(".codex/hooks.json")),
+        _ => Err("Codex 作用域必须是 user 或 project".to_string()),
+    }
+}
+
+fn codex_project_root() -> Result<PathBuf, String> {
+    let output = Command::new("git")
+        .args(["rev-parse", "--show-toplevel"])
+        .output()
+        .map_err(|error| format!("无法执行 git 以确定 Codex 项目目录：{error}"))?;
+    if !output.status.success() {
+        return Err("当前目录不在 Git 仓库中，无法使用 Codex project 作用域".to_string());
+    }
+    let root = String::from_utf8(output.stdout)
+        .map_err(|error| format!("无法读取 Git 项目目录：{error}"))?;
+    let root = root.trim();
+    if root.is_empty() {
+        return Err("Git 未返回项目目录，无法使用 Codex project 作用域".to_string());
+    }
+    Ok(PathBuf::from(root))
+}
+
+fn codex_registration_root() -> Result<PathBuf, String> {
+    if let Some(path) = env::var_os("BASH_GUARD_STATE_DIR") {
+        return expand_path(PathBuf::from(path)).map(|path| path.join("codex"));
+    }
+    let home =
+        env::var_os("HOME").ok_or_else(|| "未设置 HOME，无法确定 Codex 注册目录".to_string())?;
+    Ok(PathBuf::from(home).join(".codex/bash-guard"))
+}
+
+fn codex_registration_state_path(scope: &str) -> Result<PathBuf, String> {
+    Ok(codex_registration_root()?.join(format!("{CODEX_STATE_FILE_PREFIX}{scope}.json")))
+}
+
+fn write_codex_registration_state(scope: &str, binary: &Path, config: &Path) -> Result<(), String> {
+    write_json_file(
+        &codex_registration_state_path(scope)?,
+        &json!({"scope": scope, "binary": binary, "config": config}),
+    )
+}
+
+fn codex_hook_command(binary: &Path) -> String {
+    format!("{} codex hook", shell_quote(&binary.to_string_lossy()))
+}
+
+fn shell_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\\"'\\\"'"))
+}
+
+fn codex_hook_entry(command: &str) -> Value {
+    json!({
+        "matcher": "^Bash$",
+        "hooks": [{
+            "type": "command",
+            "command": command,
+            "timeout": 5,
+            "statusMessage": CODEX_HOOK_MARKER,
+        }],
+    })
+}
+
+fn is_our_codex_hook(entry: &Value, command: &str) -> bool {
+    entry.get("matcher").and_then(Value::as_str) == Some("^Bash$")
+        && entry
+            .get("hooks")
+            .and_then(Value::as_array)
+            .is_some_and(|hooks| {
+                hooks
+                    .iter()
+                    .any(|hook| is_our_codex_command_hook(hook, command))
+            })
+}
+
+fn is_our_codex_command_hook(hook: &Value, command: &str) -> bool {
+    hook.get("type").and_then(Value::as_str) == Some("command")
+        && hook.get("command").and_then(Value::as_str) == Some(command)
+        && hook.get("statusMessage").and_then(Value::as_str) == Some(CODEX_HOOK_MARKER)
+}
+
+fn read_codex_hooks_config(path: &Path) -> Result<Value, String> {
+    if !path.exists() {
+        return Ok(json!({}));
+    }
+    let text = fs::read_to_string(path)
+        .map_err(|error| format!("读取 {} 失败：{error}", path.display()))?;
+    if text.trim().is_empty() {
+        return Err(format!("Codex Hook 配置 {} 为空，拒绝覆盖", path.display()));
+    }
+    let root: Value = serde_json::from_str(&text)
+        .map_err(|error| format!("无法解析 Codex Hook 配置 {}：{error}", path.display()))?;
+    if !root.is_object() {
+        return Err(format!(
+            "Codex Hook 配置 {} 根节点必须是对象",
+            path.display()
+        ));
+    }
+    Ok(root)
+}
+
+fn codex_hooks_config_is_empty(root: &Value) -> bool {
+    root.as_object().is_some_and(|root| {
+        root.is_empty()
+            || (root.len() == 1
+                && root
+                    .get("hooks")
+                    .and_then(Value::as_object)
+                    .is_some_and(|hooks| {
+                        hooks.is_empty()
+                            || (hooks.len() == 1
+                                && hooks
+                                    .get("PreToolUse")
+                                    .and_then(Value::as_array)
+                                    .is_some_and(Vec::is_empty))
+                    }))
+    })
+}
+
+fn remove_empty_parent(path: &Path) -> Result<(), String> {
+    let Some(parent) = path.parent() else {
+        return Ok(());
+    };
+    if fs::read_dir(parent)
+        .map_err(|error| format!("读取 {} 失败：{error}", parent.display()))?
+        .next()
+        .is_none()
+    {
+        fs::remove_dir(parent)
+            .map_err(|error| format!("删除 {} 失败：{error}", parent.display()))?;
     }
     Ok(())
 }
@@ -447,6 +748,12 @@ fn write_registration_state(root: &Path, scope: &str, binary: &Path) -> Result<(
         &serde_json::to_string_pretty(&json!({"scope": scope, "binary": binary}))
             .map_err(|error| error.to_string())?,
     )
+}
+
+fn write_json_file(path: &Path, value: &Value) -> Result<(), String> {
+    let contents = serde_json::to_string_pretty(value)
+        .map_err(|error| format!("序列化 {} 失败：{error}", path.display()))?;
+    write_file(path, &format!("{contents}\n"))
 }
 
 fn write_file(path: &Path, contents: &str) -> Result<(), String> {

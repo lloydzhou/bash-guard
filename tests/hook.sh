@@ -25,9 +25,29 @@ deny() {
   printf '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"%s"}}' "$1"
 }
 
+check_hook() {
+  client=$1
+  name=$2
+  input=$3
+  expected=$4
+  actual=$(printf '%s' "$input" | env HOME="$tmp_home" "$binary" "$client" hook)
+  if [ "$actual" = "$expected" ]; then
+    pass=$((pass + 1))
+  else
+    printf '%s\n实际：%s\n期望：%s\n' "失败：$name" "$actual" "$expected" >&2
+    fail=$((fail + 1))
+  fi
+}
+
 check '策略拒绝' \
   '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"sudo reboot"}}' \
   "$(deny 'command blocked by bash safety policy (required=1000 allowed=0467; mode=system/external/network/workspace bits=4:read,2:write,1:execute)')"
+check_hook codex 'Codex 策略拒绝' \
+  '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"sudo reboot"}}' \
+  "$(deny 'command blocked by bash safety policy (required=1000 allowed=0467; mode=system/external/network/workspace bits=4:read,2:write,1:execute)')"
+check_hook codex 'Codex 允许命令无输出' \
+  '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"cat README.md"}}' \
+  ''
 
 check_env() {
   name=$1
