@@ -13,7 +13,9 @@ const MARKETPLACE_NAME: &str = "bash-guard-marketplace";
 const PLUGIN_NAME: &str = "bash-guard";
 const MAX_HOOK_INPUT_BYTES: u64 = 1024 * 1024;
 const DEFAULT_AUDIT_LOG_FILE: &str = "bash-guard-audit.jsonl";
-const CODEX_HOOK_MARKER: &str = "Bash Guard: checking Bash command permissions";
+const CODEX_HOOK_MARKER: &str = "Bash Guard: checking native tool permissions";
+const TOOL_MATCHER: &str = "Bash|Read|Edit|Write|Glob|Grep";
+const CODEX_TOOL_MATCHER: &str = "^(Bash|Read|Edit|Write|Glob|Grep)$";
 const CODEX_STATE_FILE_PREFIX: &str = "registration-";
 
 fn main() -> ExitCode {
@@ -40,6 +42,14 @@ fn run() -> Result<(), String> {
     }
 }
 
+struct HookOperation<'a> {
+    tool_name: &'a str,
+    policy_probe: String,
+    description: String,
+    input_summary: Value,
+    command: Option<&'a str>,
+}
+
 fn hook(client: &str) -> Result<(), String> {
     let mut payload = Vec::new();
     io::stdin()
@@ -59,21 +69,14 @@ fn hook(client: &str) -> Result<(), String> {
         }
     };
     if event.get("hook_event_name").and_then(Value::as_str) != Some("PreToolUse")
-        || event.get("tool_name").and_then(Value::as_str) != Some("Bash")
+        || !event
+            .get("tool_name")
+            .and_then(Value::as_str)
+            .is_some_and(is_supported_tool)
     {
         emit_deny("Bash Guard 收到非预期 Hook 事件，已按失败关闭处理");
         return Ok(());
     }
-    let Some(command) = event
-        .get("tool_input")
-        .and_then(Value::as_object)
-        .and_then(|input| input.get("command"))
-        .and_then(Value::as_str)
-        .filter(|command| !command.trim().is_empty())
-    else {
-        emit_deny("Bash Guard 未收到有效的 Bash 命令，已按失败关闭处理");
-        return Ok(());
-    };
     let Some(cwd) = event
         .get("cwd")
         .and_then(Value::as_str)
@@ -82,16 +85,30 @@ fn hook(client: &str) -> Result<(), String> {
         emit_deny("Bash Guard 未收到有效工作目录，已按失败关闭处理");
         return Ok(());
     };
+    let operation = match parse_operation(&event) {
+        Ok(operation) => operation,
+        Err(reason) => {
+            emit_deny(&reason);
+            return Ok(());
+        }
+    };
 
-    let decision = policy::evaluate(command, cwd, env::var("BASH_GUARD_MODE").ok().as_deref());
+    let decision = policy::evaluate(
+        &operation.policy_probe,
+        cwd,
+        env::var("BASH_GUARD_MODE").ok().as_deref(),
+    );
     let audit = json!({
         "time": OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_else(|_| "时间格式化失败".to_string()),
         "client": client,
         "session_id": event.get("session_id"),
         "tool_use_id": event.get("tool_use_id"),
         "permission_mode": event.get("permission_mode"),
+        "tool_name": operation.tool_name,
         "cwd": cwd,
-        "command": command,
+        "command": operation.command,
+        "operation": operation.description,
+        "tool_input_summary": operation.input_summary,
         "allowed": decision.allowed,
         "allowed_mode": decision.allowed_mode,
         "required_mode": decision.required_mode,
@@ -107,6 +124,141 @@ fn hook(client: &str) -> Result<(), String> {
         emit_deny(&decision.reason);
     }
     Ok(())
+}
+
+fn is_supported_tool(tool_name: &str) -> bool {
+    matches!(
+        tool_name,
+        "Bash" | "Read" | "Edit" | "Write" | "Glob" | "Grep"
+    )
+}
+
+fn parse_operation(event: &Value) -> Result<HookOperation<'_>, String> {
+    let tool_name = event
+        .get("tool_name")
+        .and_then(Value::as_str)
+        .expect("已验证 tool_name");
+    let input = event
+        .get("tool_input")
+        .and_then(Value::as_object)
+        .ok_or_else(|| "Bash Guard 未收到有效工具输入，已按失败关闭处理".to_string())?;
+    let required_string = |field: &str| {
+        input
+            .get(field)
+            .and_then(Value::as_str)
+            .filter(|value| !value.trim().is_empty())
+            .ok_or_else(|| format!("Bash Guard 未收到有效的 {tool_name}.{field}，已按失败关闭处理"))
+    };
+    let required_string_allow_empty = |field: &str| {
+        input
+            .get(field)
+            .and_then(Value::as_str)
+            .ok_or_else(|| format!("Bash Guard 未收到有效的 {tool_name}.{field}，已按失败关闭处理"))
+    };
+
+    match tool_name {
+        "Bash" => {
+            let command = required_string("command")
+                .map_err(|_| "Bash Guard 未收到有效的 Bash 命令，已按失败关闭处理".to_string())?;
+            Ok(HookOperation {
+                tool_name,
+                policy_probe: command.to_string(),
+                description: "执行 Bash 命令".to_string(),
+                input_summary: json!({"command": command}),
+                command: Some(command),
+            })
+        }
+        "Read" => {
+            let path = required_string("file_path")?;
+            Ok(read_operation(tool_name, path, json!({"file_path": path})))
+        }
+        "Write" => {
+            let path = required_string("file_path")?;
+            let content = required_string_allow_empty("content")?;
+            Ok(write_operation(
+                tool_name,
+                path,
+                json!({"file_path": path, "content_bytes": content.len()}),
+            ))
+        }
+        "Edit" => {
+            let path = required_string("file_path")?;
+            let old_string = required_string_allow_empty("old_string")?;
+            let new_string = required_string_allow_empty("new_string")?;
+            Ok(write_operation(
+                tool_name,
+                path,
+                json!({
+                    "file_path": path,
+                    "old_string_bytes": old_string.len(),
+                    "new_string_bytes": new_string.len(),
+                }),
+            ))
+        }
+        "Grep" => {
+            let path = required_string("path")?;
+            let pattern = required_string_allow_empty("pattern")?;
+            Ok(read_operation(
+                tool_name,
+                path,
+                json!({"path": path, "pattern_bytes": pattern.len()}),
+            ))
+        }
+        "Glob" => {
+            let pattern = required_string("pattern")?;
+            let path = input
+                .get("path")
+                .and_then(Value::as_str)
+                .filter(|value| !value.trim().is_empty());
+            if path.is_none() && glob_pattern_requires_system_scope(pattern) {
+                return Err("Bash Guard 无法安全确定 Glob 搜索范围，已按失败关闭处理".to_string());
+            }
+            let policy_probe = match path {
+                Some(path) => format!("cat {path} {pattern}"),
+                None => format!("cat {pattern}"),
+            };
+            Ok(HookOperation {
+                tool_name,
+                policy_probe,
+                description: format!("读取 Glob 搜索范围：{}", path.unwrap_or("当前工作目录")),
+                input_summary: json!({"path": path, "pattern": pattern}),
+                command: None,
+            })
+        }
+        _ => unreachable!("已验证 tool_name"),
+    }
+}
+
+fn read_operation<'a>(
+    tool_name: &'a str,
+    path: &'a str,
+    input_summary: Value,
+) -> HookOperation<'a> {
+    HookOperation {
+        tool_name,
+        policy_probe: format!("cat {path}"),
+        description: format!("读取路径：{path}"),
+        input_summary,
+        command: None,
+    }
+}
+
+fn write_operation<'a>(
+    tool_name: &'a str,
+    path: &'a str,
+    input_summary: Value,
+) -> HookOperation<'a> {
+    HookOperation {
+        tool_name,
+        policy_probe: format!(": > {path}"),
+        description: format!("写入路径：{path}"),
+        input_summary,
+        command: None,
+    }
+}
+
+fn glob_pattern_requires_system_scope(pattern: &str) -> bool {
+    pattern.starts_with('/') || pattern.split('/').any(|part| part == "..")
 }
 
 fn emit_deny(reason: &str) {
@@ -364,7 +516,7 @@ fn unregister_codex(scope: &str) -> Result<(), String> {
             .and_then(Value::as_array_mut)
         {
             entries.retain_mut(|entry| {
-                if entry.get("matcher").and_then(Value::as_str) != Some("^Bash$") {
+                if entry.get("matcher").and_then(Value::as_str) != Some(CODEX_TOOL_MATCHER) {
                     return true;
                 }
                 let Some(hooks) = entry.get_mut("hooks").and_then(Value::as_array_mut) else {
@@ -492,7 +644,7 @@ fn shell_quote(value: &str) -> String {
 
 fn codex_hook_entry(command: &str) -> Value {
     json!({
-        "matcher": "^Bash$",
+        "matcher": CODEX_TOOL_MATCHER,
         "hooks": [{
             "type": "command",
             "command": command,
@@ -503,7 +655,7 @@ fn codex_hook_entry(command: &str) -> Value {
 }
 
 fn is_our_codex_hook(entry: &Value, command: &str) -> bool {
-    entry.get("matcher").and_then(Value::as_str) == Some("^Bash$")
+    entry.get("matcher").and_then(Value::as_str) == Some(CODEX_TOOL_MATCHER)
         && entry
             .get("hooks")
             .and_then(Value::as_array)
@@ -740,8 +892,9 @@ fn write_adapter(root: &Path, binary: &Path) -> Result<(), String> {
     write_file(
         &plugin.join("hooks/hooks.json"),
         &format!(
-            r#"{{"description":"在 Claude Code 执行 Bash 工具前检查命令权限","hooks":{{"PreToolUse":[{{"matcher":"Bash","hooks":[{{"type":"command","command":{},"args":["claude","hook"],"timeout":5,"statusMessage":"正在检查 Bash 命令权限"}}]}}]}}}}
+            r#"{{"description":"在 Claude Code 执行受保护工具前检查权限","hooks":{{"PreToolUse":[{{"matcher":"{}","hooks":[{{"type":"command","command":{},"args":["claude","hook"],"timeout":5,"statusMessage":"正在检查工具权限"}}]}}]}}}}
 "#,
+            TOOL_MATCHER,
             serde_json::to_string(&binary.to_string_lossy()).map_err(|error| error.to_string())?
         ),
     )?;
