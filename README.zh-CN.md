@@ -84,7 +84,18 @@ Codex 注册仅处理 `PreToolUse` 事件中匹配 `^(Bash|Read|Edit|Write|Glob|
 
 ## 配置权限与审计日志
 
-默认权限模式为 `0467`。权限位含义、命令分类、推荐模式及完整示例请查看 [Bash 工具权限策略](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md)。
+默认权限模式为 `0467`。四位八进制数从左至右分别控制 system、external、network、workspace 四个作用域；每组内读、写、执行对应 `4`、`2`、`1`：
+
+```text
+BASH_GUARD_MODE = 0 4 6 7
+                  | | | |
+                  | | | `- workspace
+                  | | `--- network
+                  | `----- external
+                  `------- system
+```
+
+权限位含义、命令分类、推荐模式及完整示例请查看 [Bash 工具权限策略](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md)。
 
 仅为新启动的客户端进程设置权限模式：
 

@@ -84,7 +84,18 @@ Codex registration only handles its `PreToolUse` event with matcher `^(Bash|Read
 
 ## Configure policy and audit logging
 
-The default policy mode is `0467`. See the [Bash tool policy](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md) for permission bits, command categories, recommended modes, and examples.
+The default policy mode is `0467`. The four octal digits control the system, external, network, and workspace scopes from left to right; within each group, read, write, and execute map to `4`, `2`, and `1`:
+
+```text
+BASH_GUARD_MODE = 0 4 6 7
+                  | | | |
+                  | | | `- workspace
+                  | | `--- network
+                  | `----- external
+                  `------- system
+```
+
+See the [Bash tool policy](https://github.com/lloydzhou/bash-agent/blob/main/docs/bash-tool-policy.md) for permission bits, command categories, recommended modes, and examples.
 
 Set a mode only for the client process you start:
 
