@@ -1,16 +1,16 @@
 {
-  "description": "在 Claude Code 执行 Bash 工具前检查命令权限",
+  "description": "在 Claude Code 执行受保护工具前检查权限",
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Read|Edit|Write|Glob|Grep",
         "hooks": [
           {
             "type": "command",
             "command": "bash-guard",
             "args": ["claude", "hook"],
             "timeout": 5,
-            "statusMessage": "正在检查 Bash 命令权限"
+            "statusMessage": "正在检查工具权限"
           }
         ]
       }

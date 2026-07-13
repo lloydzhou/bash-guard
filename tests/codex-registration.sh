@@ -44,12 +44,38 @@ with open(path) as f:
 entries = config["hooks"]["PreToolUse"]
 assert len(entries) == 2
 assert config["hooks"]["PostToolUse"][0]["hooks"][0]["command"] == "other post"
-ours = [entry for entry in entries if entry.get("matcher") == "^Bash$" and any(hook.get("statusMessage") == "Bash Guard: checking Bash command permissions" for hook in entry.get("hooks", []))]
+ours = [entry for entry in entries if entry.get("matcher") == "^(Bash|Read|Edit|Write|Glob|Grep)$" and any(hook.get("statusMessage") == "Bash Guard: checking native tool permissions" for hook in entry.get("hooks", []))]
 assert len(ours) == 1
 hook = ours[0]["hooks"][0]
 assert hook["type"] == "command"
 assert hook["command"] == "'%s' codex hook" % binary
 assert hook["timeout"] == 5
+PY
+pass_case
+
+python3 - "$user_config" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as f:
+    config = json.load(f)
+entry = config["hooks"]["PreToolUse"][-1]
+entry["matcher"] = "^Bash$"
+for hook in entry["hooks"]:
+    hook["statusMessage"] = "Bash Guard: checking Bash command permissions"
+with open(sys.argv[1], "w") as f:
+    json.dump(config, f)
+PY
+run codex register --scope user >/dev/null
+python3 - "$user_config" <<'PY'
+import json
+import sys
+with open(sys.argv[1]) as f:
+    entries = json.load(f)["hooks"]["PreToolUse"]
+assert len(entries) == 3
+legacy = [entry for entry in entries if entry.get("matcher") == "^Bash$" and any(hook.get("statusMessage") == "Bash Guard: checking Bash command permissions" for hook in entry.get("hooks", []))]
+current = [entry for entry in entries if entry.get("matcher") == "^(Bash|Read|Edit|Write|Glob|Grep)$" and any(hook.get("statusMessage") == "Bash Guard: checking native tool permissions" for hook in entry.get("hooks", []))]
+assert len(legacy) == 1
+assert len(current) == 1
 PY
 pass_case
 
@@ -59,8 +85,8 @@ import json
 import sys
 with open(sys.argv[1]) as f:
     entries = json.load(f)["hooks"]["PreToolUse"]
-ours = [entry for entry in entries if any(hook.get("statusMessage") == "Bash Guard: checking Bash command permissions" for hook in entry.get("hooks", []))]
-assert len(entries) == 2
+ours = [entry for entry in entries if any(hook.get("statusMessage") == "Bash Guard: checking native tool permissions" for hook in entry.get("hooks", []))]
+assert len(entries) == 3
 assert len(ours) == 1
 PY
 pass_case
@@ -73,7 +99,7 @@ with open(path) as f:
     config = json.load(f)
 command = "'%s' codex hook" % binary
 for entry in config["hooks"]["PreToolUse"]:
-    if entry.get("matcher") == "^Bash$" and any(hook.get("statusMessage") == "Bash Guard: checking Bash command permissions" for hook in entry.get("hooks", [])):
+    if entry.get("matcher") == "^(Bash|Read|Edit|Write|Glob|Grep)$" and any(hook.get("statusMessage") == "Bash Guard: checking native tool permissions" for hook in entry.get("hooks", [])):
         entry["hooks"].append({"type": "command", "command": "other nested bash"})
 with open(path, "w") as f:
     json.dump(config, f)
@@ -89,11 +115,13 @@ import json
 import sys
 with open(sys.argv[1]) as f:
     config = json.load(f)
-assert len(config["hooks"]["PreToolUse"]) == 2
+assert len(config["hooks"]["PreToolUse"]) == 3
 assert config["hooks"]["PreToolUse"][0]["hooks"][0]["command"] == "other bash"
-remaining = [entry for entry in config["hooks"]["PreToolUse"] if entry.get("matcher") == "^Bash$" and any(hook.get("command") == "other nested bash" for hook in entry.get("hooks", []))]
+legacy = [entry for entry in config["hooks"]["PreToolUse"] if entry.get("matcher") == "^Bash$" and any(hook.get("statusMessage") == "Bash Guard: checking Bash command permissions" for hook in entry.get("hooks", []))]
+assert len(legacy) == 1
+remaining = [entry for entry in config["hooks"]["PreToolUse"] if entry.get("matcher") == "^(Bash|Read|Edit|Write|Glob|Grep)$" and any(hook.get("command") == "other nested bash" for hook in entry.get("hooks", []))]
 assert len(remaining) == 1
-assert all(hook.get("statusMessage") != "Bash Guard: checking Bash command permissions" for hook in remaining[0]["hooks"])
+assert all(hook.get("statusMessage") != "Bash Guard: checking native tool permissions" for hook in remaining[0]["hooks"])
 assert "PostToolUse" in config["hooks"]
 PY
 pass_case
