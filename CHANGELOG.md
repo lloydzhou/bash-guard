@@ -2,6 +2,18 @@
 
 本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 0.1.4 - 2026-07-13
+
+### 新增
+
+- 将权限防护范围从 `Bash` 扩展到 `Read`、`Edit`、`Write`、`Glob` 和 `Grep`，覆盖 Claude Code 与 Codex 的受支持原生工具调用。
+- 审计记录新增 `tool_name`、`operation` 和 `tool_input_summary` 字段；写入内容、编辑替换文本和 Grep 模式仅记录 UTF-8 字节长度，避免记录正文。
+
+### 变更
+
+- 原生工具调用复用 system/external/network/workspace 四组八进制权限模型；字段缺失、类型错误、关键路径为空或 Glob 范围不确定时均默认拒绝。
+- Claude Code 插件 Hook 匹配器与 Codex 注册匹配器均更新为 `Bash|Read|Edit|Write|Glob|Grep`。
+
 ## 0.1.3 - 2026-07-11
 
 ### 新增
