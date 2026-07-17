@@ -213,9 +213,12 @@ fn parse_operation(event: &Value) -> Result<HookOperation<'_>, String> {
             if path.is_none() && glob_pattern_requires_system_scope(pattern) {
                 return Err("Bash Guard 无法安全确定 Glob 搜索范围，已按失败关闭处理".to_string());
             }
-            let policy_probe = match path {
-                Some(path) => format!("cat {path} {pattern}"),
-                None => format!("cat {pattern}"),
+            // 只分析path，不分析pattern（pattern只是glob匹配模式，不影响权限）
+            let policy_probe = if let Some(path) = path {
+                format!("cat {path}")
+            } else {
+                // path为None时pattern是相对路径（否则已失败关闭），访问当前目录
+                "cat .".to_string()
             };
             Ok(HookOperation {
                 tool_name,
