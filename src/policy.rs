@@ -103,16 +103,16 @@ fn resolve_path(raw_path: &str, cwd: &str) -> String {
         .trim_matches(|character| character == '"' || character == '\'')
         .trim_start_matches("of=")
         .trim_end_matches([';', ',', ')']);
-    
+
     if path.is_empty() {
         return String::new();
     }
-    
+
     // 如果已经是绝对路径或以~开头，直接返回
     if path.starts_with('/') || path.starts_with('~') {
         return path.to_string();
     }
-    
+
     // 处理相对路径：将相对路径转换为基于cwd的绝对路径
     if !cwd.is_empty() {
         // 处理 ./ 或 ../ 开头的路径
@@ -123,22 +123,22 @@ fn resolve_path(raw_path: &str, cwd: &str) -> String {
             }
             return format!("{}/{}", cwd, path.trim_start_matches('.'));
         }
-        
+
         // 处理其他相对路径（如 server/routes/file.py）
         if path.contains('/') {
             return format!("{}/{}", cwd, path);
         }
-        
+
         // 简单文件名，也加上cwd前缀进行比较
         return format!("{}/{}", cwd, path);
     }
-    
+
     path.to_string()
 }
 
 fn add_path(mask: &mut u16, raw_path: &str, permissions: u16, cwd: &str) {
     let resolved_path = resolve_path(raw_path, cwd);
-    
+
     if resolved_path.is_empty()
         || resolved_path == "/tmp"
         || resolved_path.starts_with("/tmp/")
@@ -156,7 +156,9 @@ fn add_path(mask: &mut u16, raw_path: &str, permissions: u16, cwd: &str) {
         || RE_SYSTEM_PATH.is_match(&resolved_path)
     {
         SCOPE_SYSTEM
-    } else if !cwd.is_empty() && (resolved_path == cwd || resolved_path.starts_with(&format!("{cwd}/"))) {
+    } else if !cwd.is_empty()
+        && (resolved_path == cwd || resolved_path.starts_with(&format!("{cwd}/")))
+    {
         SCOPE_WORKSPACE
     } else if RE_EXTERNAL_PATH.is_match(&resolved_path) || resolved_path.contains("..") {
         SCOPE_EXTERNAL
@@ -168,14 +170,14 @@ fn add_path(mask: &mut u16, raw_path: &str, permissions: u16, cwd: &str) {
 
 fn extract_patch_files(script: &str) -> Vec<String> {
     let mut files = Vec::new();
-    
+
     // 提取apply_patch中的文件路径模式
     let patterns = [
         r"\*\*\* (?:Update|Add|Delete) File:\s*([^\n\r]+)",
         r"---\s*a/([^\s]+)",
         r"\+\+\+\s*b/([^\s]+)",
     ];
-    
+
     for pattern in &patterns {
         if let Ok(re) = Regex::new(pattern) {
             for caps in re.captures_iter(script) {
@@ -188,7 +190,7 @@ fn extract_patch_files(script: &str) -> Vec<String> {
             }
         }
     }
-    
+
     files
 }
 
@@ -198,7 +200,7 @@ fn scan_segment(mask: &mut u16, segment: &str, cwd: &str) {
         // 在完整的script中查找文件路径（需要传递完整的script）
         // 由于这里只有segment，我们先添加默认的workspace写权限
         add_mode(mask, SCOPE_WORKSPACE, PERM_WRITE);
-        
+
         // 如果segment中包含文件路径模式，尝试提取
         let patch_files = extract_patch_files(segment);
         for file_path in patch_files {
@@ -206,7 +208,7 @@ fn scan_segment(mask: &mut u16, segment: &str, cwd: &str) {
             add_path(mask, &file_path, PERM_WRITE, cwd);
         }
     }
-    
+
     let mut redirect_permissions = 0;
     let mut path_permissions = PERM_READ;
     let mut flags = 0u8;
@@ -377,7 +379,7 @@ fn scan_segment(mask: &mut u16, segment: &str, cwd: &str) {
                              !token.contains("cargo") &&
                              !token.contains("python") &&
                              !token.contains("node");
-                             
+
                 if is_path {
                     add_path(mask, token, path_permissions, cwd);
                     flags = 3;
@@ -396,21 +398,21 @@ fn scan_script(script: &str, cwd: &str) -> u16 {
     if script.contains("/dev/tcp") {
         add_mode(&mut mask, SCOPE_NETWORK, PERM_READ | PERM_WRITE);
     }
-    
+
     // 特殊处理apply_patch：在整个script中提取文件路径
     if script.contains("apply_patch") {
         let patch_files = extract_patch_files(&script);
         if !patch_files.is_empty() {
             // apply_patch是写操作，默认在workspace
             add_mode(&mut mask, SCOPE_WORKSPACE, PERM_WRITE);
-            
+
             // 分析每个文件路径的实际scope
             for file_path in patch_files {
                 add_path(&mut mask, &file_path, PERM_WRITE, cwd);
             }
         }
     }
-    
+
     let normalized = script
         .replace("&&", "\n")
         .replace("||", "\n")
@@ -623,7 +625,11 @@ mod tests {
 PATCH"#;
 
         let result = classify_required_mode(command, "/workspace/project");
-        assert!(result.starts_with('0'), "apply_patch在工作区应该是workspace scope, got {}", result);
+        assert!(
+            result.starts_with('0'),
+            "apply_patch在工作区应该是workspace scope, got {}",
+            result
+        );
         assert!(!result.starts_with('4'), "不应该是system scope");
     }
 
@@ -637,11 +643,23 @@ PATCH"#;
         let result2 = classify_required_mode(command2, cwd);
 
         // 相对路径和绝对路径应该得到相同的结果
-        assert_eq!(result1, result2, "相对路径和绝对路径应该得到相同的权限模式: got {} and {}", result1, result2);
+        assert_eq!(
+            result1, result2,
+            "相对路径和绝对路径应该得到相同的权限模式: got {} and {}",
+            result1, result2
+        );
 
         // 都应该是workspace scope
-        assert!(result1.starts_with('0'), "相对路径应该是workspace scope, got {}", result1);
-        assert!(result2.starts_with('0'), "绝对路径应该是workspace scope, got {}", result2);
+        assert!(
+            result1.starts_with('0'),
+            "相对路径应该是workspace scope, got {}",
+            result1
+        );
+        assert!(
+            result2.starts_with('0'),
+            "绝对路径应该是workspace scope, got {}",
+            result2
+        );
     }
 
     #[test]
@@ -649,16 +667,24 @@ PATCH"#;
         let command = "apply_patch <<'PATCH'\n*** Update File: src/core/engine.py\nPATCH";
         let cwd = "/workspace/project";
 
-        let results: Vec<_> = (0..10).map(|_| {
-            classify_required_mode(command, cwd)
-        }).collect();
+        let results: Vec<_> = (0..10)
+            .map(|_| classify_required_mode(command, cwd))
+            .collect();
 
         // 所有结果应该一致
         let first = &results[0];
-        assert!(results.iter().all(|r| r == first), "多次分类应该得到一致结果: {:?}", results);
+        assert!(
+            results.iter().all(|r| r == first),
+            "多次分类应该得到一致结果: {:?}",
+            results
+        );
 
         // 应该是workspace scope
-        assert!(first.starts_with('0'), "apply_patch应该是workspace scope, got {}", first);
+        assert!(
+            first.starts_with('0'),
+            "apply_patch应该是workspace scope, got {}",
+            first
+        );
     }
 
     #[test]
@@ -668,14 +694,23 @@ PATCH"#;
             ("cat lib/utils/helpers.py", "/workspace/project", "0004"),
             ("echo hi > tests/test.txt", "/workspace/project", "0002"),
             ("mkdir build/lib", "/workspace/project", "0006"),
-            ("touch frontend/src/component.tsx", "/workspace/project", "0006"),
+            (
+                "touch frontend/src/component.tsx",
+                "/workspace/project",
+                "0006",
+            ),
         ];
 
         for (command, cwd, expected_start) in test_cases {
             let result = classify_required_mode(command, cwd);
-            assert!(result.starts_with(expected_start),
-                   "Command '{}' with cwd '{}' should start with '{}', got {}",
-                   command, cwd, expected_start, result);
+            assert!(
+                result.starts_with(expected_start),
+                "Command '{}' with cwd '{}' should start with '{}', got {}",
+                command,
+                cwd,
+                expected_start,
+                result
+            );
         }
     }
 }
