@@ -883,13 +883,13 @@ fn write_adapter(root: &Path, binary: &Path) -> Result<(), String> {
     write_file(
         &root.join(".claude-plugin/marketplace.json"),
         &format!(
-            r#"{{"$schema":"https://json.schemastore.org/claude-code-marketplace.json","name":"{MARKETPLACE_NAME}","owner":{{"name":"bash-agent maintainers"}},"metadata":{{"description":"Bash Guard 本地适配插件源"}},"plugins":[{{"name":"{PLUGIN_NAME}","source":"./plugins/bash-guard","description":"在 Bash 执行前实施权限策略","version":"0.1.4"}}]}}
+            r#"{{"$schema":"https://json.schemastore.org/claude-code-marketplace.json","name":"{MARKETPLACE_NAME}","owner":{{"name":"bash-agent maintainers"}},"metadata":{{"description":"Bash Guard 本地适配插件源"}},"plugins":[{{"name":"{PLUGIN_NAME}","source":"./plugins/bash-guard","description":"在 Bash 执行前实施权限策略","version":"0.1.5"}}]}}
 "#
         ),
     )?;
     write_file(
         &plugin.join(".claude-plugin/plugin.json"),
-        r#"{"name":"bash-guard","version":"0.1.4","description":"Bash Guard 本地失败关闭适配器","author":{"name":"bash-agent maintainers"},"license":"MIT"}
+        r#"{"name":"bash-guard","version":"0.1.5","description":"Bash Guard 本地失败关闭适配器","author":{"name":"bash-agent maintainers"},"license":"MIT"}
 "#,
     )?;
     write_file(
