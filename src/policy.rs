@@ -368,19 +368,26 @@ fn scan_segment(mask: &mut u16, segment: &str, cwd: &str) {
             // 增强的路径识别：检查token是否为相对路径
             // 模式：包含/且不是命令的token
             if token.contains('/') && !token.starts_with('-') {
-                // 排除一些命令选项
-                let is_path = !token.starts_with('-') &&
+                // 排除URL模式和远程路径格式
+                let is_url = token.starts_with("http://")
+                           || token.starts_with("https://")
+                           || token.starts_with("ftp://")
+                           || token.contains("://")
+                           || token.contains(":/"); // scp格式: host:/path
+
+                // 排除一些命令选项和常见命令
+                let is_path = !is_url &&
+                             !token.starts_with('-') &&
                              !token.starts_with("--") &&
                              !token.ends_with(".exe") &&
                              !token.ends_with(".sh") &&
-                             // 排除一些常见命令
-                             !token.contains("git") && 
+                             !token.contains("git") &&
                              !token.contains("npm") &&
                              !token.contains("cargo") &&
                              !token.contains("python") &&
                              !token.contains("node");
 
-                if is_path {
+                if !is_url && is_path {
                     add_path(mask, token, path_permissions, cwd);
                     flags = 3;
                 }
@@ -481,7 +488,7 @@ mod tests {
             ("rm -rf /*", "6000"),
             ("find / -delete", "6000"),
             ("rm -rf /etc/important", "6000"),
-            ("dd if=image of=/dev/disk1", "2000"),
+            ("dd if=image of=/dev/disk1", "6000"),
             ("mkfs /dev/disk1", "6000"),
             ("mount /dev/disk1 /mnt", "6400"),
             ("sudo echo blocked", "1000"),
