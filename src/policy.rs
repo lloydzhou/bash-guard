@@ -370,22 +370,22 @@ fn scan_segment(mask: &mut u16, segment: &str, cwd: &str) {
             if token.contains('/') && !token.starts_with('-') {
                 // 排除URL模式和远程路径格式
                 let is_url = token.starts_with("http://")
-                           || token.starts_with("https://")
-                           || token.starts_with("ftp://")
-                           || token.contains("://")
-                           || token.contains(":/"); // scp格式: host:/path
+                    || token.starts_with("https://")
+                    || token.starts_with("ftp://")
+                    || token.contains("://")
+                    || token.contains(":/"); // scp格式: host:/path
 
                 // 排除一些命令选项和常见命令
-                let is_path = !is_url &&
-                             !token.starts_with('-') &&
-                             !token.starts_with("--") &&
-                             !token.ends_with(".exe") &&
-                             !token.ends_with(".sh") &&
-                             !token.contains("git") &&
-                             !token.contains("npm") &&
-                             !token.contains("cargo") &&
-                             !token.contains("python") &&
-                             !token.contains("node");
+                let is_path = !is_url
+                    && !token.starts_with('-')
+                    && !token.starts_with("--")
+                    && !token.ends_with(".exe")
+                    && !token.ends_with(".sh")
+                    && !token.contains("git")
+                    && !token.contains("npm")
+                    && !token.contains("cargo")
+                    && !token.contains("python")
+                    && !token.contains("node");
 
                 if !is_url && is_path {
                     add_path(mask, token, path_permissions, cwd);
