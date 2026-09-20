@@ -1,3 +1,4 @@
+mod jev;
 mod policy;
 
 use std::env;
@@ -17,6 +18,7 @@ const CODEX_HOOK_MARKER: &str = "Bash Guard: checking native tool permissions";
 const TOOL_MATCHER: &str = "Bash|Read|Edit|Write|Glob|Grep";
 const CODEX_TOOL_MATCHER: &str = "^(Bash|Read|Edit|Write|Glob|Grep)$";
 const CODEX_STATE_FILE_PREFIX: &str = "registration-";
+const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> ExitCode {
     match run() {
@@ -92,12 +94,95 @@ fn hook(client: &str) -> Result<(), String> {
             return Ok(());
         }
     };
-
-    let decision = policy::evaluate(
-        &operation.policy_probe,
-        cwd,
+    let allowed_mode = policy::normalize_mode(
         env::var("BASH_GUARD_MODE").ok().as_deref(),
+        policy::DEFAULT_ALLOWED_MODE,
     );
+
+    if !jev::is_configured() {
+        let decision = policy::evaluate(&operation.policy_probe, cwd, Some(&allowed_mode));
+        let audit = json!({
+            "time": OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_else(|_| "时间格式化失败".to_string()),
+            "client": client,
+            "session_id": event.get("session_id"),
+            "tool_use_id": event.get("tool_use_id"),
+            "permission_mode": event.get("permission_mode"),
+            "tool_name": operation.tool_name,
+            "cwd": cwd,
+            "command": operation.command.map(jev::sanitize),
+            "operation": operation.description,
+            "tool_input_summary": operation.input_summary,
+            "allowed": decision.allowed,
+            "allowed_mode": decision.allowed_mode,
+            "required_mode": decision.required_mode,
+            "reason": decision.reason,
+            "decision_source": "policy",
+        });
+        if let Err(error) = audit_log_path(client).and_then(|path| append_audit(path, &audit)) {
+            emit_deny(&format!(
+                "Bash Guard 审计日志写入失败，已按失败关闭处理：{error}"
+            ));
+            return Ok(());
+        }
+        if !decision.allowed {
+            emit_deny(&decision.reason);
+        }
+        return Ok(());
+    }
+
+    let decision = match jev::evaluate(
+        client,
+        operation.tool_name,
+        cwd,
+        &allowed_mode,
+        &operation.description,
+        operation.command,
+    ) {
+        Ok(decision) => decision,
+        Err(error) => {
+            let decision = policy::evaluate(&operation.policy_probe, cwd, Some(&allowed_mode));
+            let audit = json!({
+                "time": OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_else(|_| "时间格式化失败".to_string()),
+                "client": client,
+                "session_id": event.get("session_id"),
+                "tool_use_id": event.get("tool_use_id"),
+                "permission_mode": event.get("permission_mode"),
+                "tool_name": operation.tool_name,
+                "cwd": cwd,
+                "command": operation.command.map(jev::sanitize),
+                "operation": operation.description,
+                "tool_input_summary": operation.input_summary,
+                "allowed": decision.allowed,
+                "allowed_mode": decision.allowed_mode,
+                "required_mode": decision.required_mode,
+                "reason": decision.reason,
+                "decision_source": "policy_fallback",
+                "jev_error": error,
+            });
+            if let Err(audit_error) =
+                audit_log_path(client).and_then(|path| append_audit(path, &audit))
+            {
+                emit_deny(&format!(
+                    "Bash Guard 审计日志写入失败，已按失败关闭处理：{audit_error}"
+                ));
+            } else {
+                if !decision.allowed {
+                    emit_deny(
+                        audit
+                            .get("reason")
+                            .and_then(Value::as_str)
+                            .unwrap_or("原有策略拒绝该操作"),
+                    );
+                }
+            }
+            return Ok(());
+        }
+    };
+    let reason = if decision.allowed {
+        decision.reason.clone()
+    } else {
+        policy::jev_denial_reason()
+    };
     let audit = json!({
         "time": OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_else(|_| "时间格式化失败".to_string()),
         "client": client,
@@ -106,13 +191,16 @@ fn hook(client: &str) -> Result<(), String> {
         "permission_mode": event.get("permission_mode"),
         "tool_name": operation.tool_name,
         "cwd": cwd,
-        "command": operation.command,
+        "command": operation.command.map(jev::sanitize),
         "operation": operation.description,
         "tool_input_summary": operation.input_summary,
         "allowed": decision.allowed,
-        "allowed_mode": decision.allowed_mode,
-        "required_mode": decision.required_mode,
-        "reason": decision.reason,
+        "allowed_mode": allowed_mode,
+        "decision_source": "jev",
+        "jev_choice": decision.choice,
+        "jev_probability": decision.probability,
+        "jev_model": decision.model,
+        "reason": reason,
     });
     if let Err(error) = audit_log_path(client).and_then(|path| append_audit(path, &audit)) {
         emit_deny(&format!(
@@ -121,7 +209,12 @@ fn hook(client: &str) -> Result<(), String> {
         return Ok(());
     }
     if !decision.allowed {
-        emit_deny(&decision.reason);
+        emit_deny(
+            audit
+                .get("reason")
+                .and_then(Value::as_str)
+                .unwrap_or("command blocked by bash safety policy"),
+        );
     }
     Ok(())
 }
@@ -213,11 +306,9 @@ fn parse_operation(event: &Value) -> Result<HookOperation<'_>, String> {
             if path.is_none() && glob_pattern_requires_system_scope(pattern) {
                 return Err("Bash Guard 无法安全确定 Glob 搜索范围，已按失败关闭处理".to_string());
             }
-            // 只分析path，不分析pattern（pattern只是glob匹配模式，不影响权限）
             let policy_probe = if let Some(path) = path {
                 format!("cat {path}")
             } else {
-                // path为None时pattern是相对路径（否则已失败关闭），访问当前目录
                 "cat .".to_string()
             };
             Ok(HookOperation {
@@ -883,13 +974,13 @@ fn write_adapter(root: &Path, binary: &Path) -> Result<(), String> {
     write_file(
         &root.join(".claude-plugin/marketplace.json"),
         &format!(
-            r#"{{"$schema":"https://json.schemastore.org/claude-code-marketplace.json","name":"{MARKETPLACE_NAME}","owner":{{"name":"bash-agent maintainers"}},"metadata":{{"description":"Bash Guard 本地适配插件源"}},"plugins":[{{"name":"{PLUGIN_NAME}","source":"./plugins/bash-guard","description":"在 Bash 执行前实施权限策略","version":"0.1.5"}}]}}
+            r#"{{"$schema":"https://json.schemastore.org/claude-code-marketplace.json","name":"{MARKETPLACE_NAME}","owner":{{"name":"bash-agent maintainers"}},"metadata":{{"description":"Bash Guard 本地适配插件源"}},"plugins":[{{"name":"{PLUGIN_NAME}","source":"./plugins/bash-guard","description":"在 Bash 执行前实施权限策略","version":"{VERSION}"}}]}}
 "#
         ),
     )?;
     write_file(
         &plugin.join(".claude-plugin/plugin.json"),
-        r#"{"name":"bash-guard","version":"0.1.5","description":"Bash Guard 本地失败关闭适配器","author":{"name":"bash-agent maintainers"},"license":"MIT"}
+        r#"{"name":"bash-guard","version":"{VERSION}","description":"Bash Guard 本地失败关闭适配器","author":{"name":"bash-agent maintainers"},"license":"MIT"}
 "#,
     )?;
     write_file(

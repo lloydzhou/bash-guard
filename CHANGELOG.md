@@ -2,6 +2,22 @@
 
 本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 0.2.0 - 2026-09-21
+
+### 新增
+
+- 可选接入 TypeSafe Jev 作为 Claude Code 与 Codex Hook 的语义拦截关卡；Jev 仅输出 `allow` 或 `deny`，`allow` 直接放行，`deny` 阻断工具调用。
+- 支持 `JEV_API_KEY`、`JEV_BASE_URL`、`JEV_MODEL`，并兼容官方 `TYPESAFE_API_KEY`、`TYPESAFE_BASE_URL`、`TYPESAFE_DEFAULT_MODEL` 配置。
+- Jev 审计记录增加决策来源、选择、概率、模型和回退错误；命令摘要会脱敏常见凭据参数。
+- Jev 请求新增显式 `workspace_path`，将 Hook 提供的绝对工作目录作为路径判断边界。
+- Jev 请求新增规范化的权限模式、四个 scope 的精确定义及读写执行位说明，使语义判断按当前 `BASH_GUARD_MODE` 拒绝未授权能力。
+
+### 变更
+
+- 未配置 Jev key 或 Jev 请求失败时回退到原有本地权限策略；Jev 正常路径不运行本地策略。
+- Jev 拦截使用 `source=jev decision=deny local_policy=unknown` 文案，不虚构本地权限或 Jev 未返回的风险解释。
+- 中英文 README 增加 Jev 决策流程、配置、审计和贡献说明。
+
 ## 0.1.5 - 2026-07-17
 
 ### 修复

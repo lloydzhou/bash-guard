@@ -62,6 +62,10 @@ pub fn denial_reason(required_mode: &str, allowed_mode: &str) -> String {
     )
 }
 
+pub fn jev_denial_reason() -> String {
+    "command blocked by bash safety policy (source=jev decision=deny local_policy=unknown; mode=system/external/network/workspace bits=4:read,2:write,1:execute)".to_string()
+}
+
 pub fn evaluate(command: &str, cwd: &str, allowed_mode: Option<&str>) -> PolicyDecision {
     let allowed_mode = normalize_mode(allowed_mode, DEFAULT_ALLOWED_MODE);
     let required_mode = classify_required_mode(command, cwd);
