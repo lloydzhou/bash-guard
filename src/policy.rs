@@ -62,8 +62,10 @@ pub fn denial_reason(required_mode: &str, allowed_mode: &str) -> String {
     )
 }
 
-pub fn jev_denial_reason() -> String {
-    "command blocked by bash safety policy (source=jev decision=deny local_policy=unknown; mode=system/external/network/workspace bits=4:read,2:write,1:execute)".to_string()
+pub fn jev_denial_reason(required_mode: &str, allowed_mode: &str) -> String {
+    format!(
+        "command blocked by bash safety policy (source=jev required={required_mode} allowed={allowed_mode}; mode=system/external/network/workspace bits=4:read,2:write,1:execute)"
+    )
 }
 
 pub fn evaluate(command: &str, cwd: &str, allowed_mode: Option<&str>) -> PolicyDecision {

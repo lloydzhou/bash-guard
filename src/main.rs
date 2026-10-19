@@ -99,6 +99,33 @@ fn hook(client: &str) -> Result<(), String> {
         policy::DEFAULT_ALLOWED_MODE,
     );
 
+    // 7777 grants every bit: fully allow without any review, Jev or local policy.
+    if allowed_mode == "7777" {
+        let audit = json!({
+            "time": OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_else(|_| "时间格式化失败".to_string()),
+            "client": client,
+            "session_id": event.get("session_id"),
+            "tool_use_id": event.get("tool_use_id"),
+            "permission_mode": event.get("permission_mode"),
+            "tool_name": operation.tool_name,
+            "cwd": cwd,
+            "command": operation.command.map(jev::sanitize),
+            "operation": operation.description,
+            "tool_input_summary": operation.input_summary,
+            "allowed": true,
+            "allowed_mode": allowed_mode,
+            "required_mode": "0000",
+            "reason": "权限模式 7777 已完全放行，不做任何审查",
+            "decision_source": "mode_7777",
+        });
+        if let Err(error) = audit_log_path(client).and_then(|path| append_audit(path, &audit)) {
+            emit_deny(&format!(
+                "Bash Guard 审计日志写入失败，已按失败关闭处理：{error}"
+            ));
+        }
+        return Ok(());
+    }
+
     if !jev::is_configured() {
         let decision = policy::evaluate(&operation.policy_probe, cwd, Some(&allowed_mode));
         let audit = json!({
@@ -130,60 +157,45 @@ fn hook(client: &str) -> Result<(), String> {
         return Ok(());
     }
 
+    let local = policy::evaluate(&operation.policy_probe, cwd, Some(&allowed_mode));
     let decision = match jev::evaluate(
         client,
         operation.tool_name,
         cwd,
-        &allowed_mode,
         &operation.description,
         operation.command,
     ) {
-        Ok(decision) => decision,
-        Err(error) => {
-            let decision = policy::evaluate(&operation.policy_probe, cwd, Some(&allowed_mode));
-            let audit = json!({
-                "time": OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_else(|_| "时间格式化失败".to_string()),
-                "client": client,
-                "session_id": event.get("session_id"),
-                "tool_use_id": event.get("tool_use_id"),
-                "permission_mode": event.get("permission_mode"),
-                "tool_name": operation.tool_name,
-                "cwd": cwd,
-                "command": operation.command.map(jev::sanitize),
-                "operation": operation.description,
-                "tool_input_summary": operation.input_summary,
-                "allowed": decision.allowed,
-                "allowed_mode": decision.allowed_mode,
-                "required_mode": decision.required_mode,
-                "reason": decision.reason,
-                "decision_source": "policy_fallback",
-                "jev_error": error,
-            });
-            if let Err(audit_error) =
-                audit_log_path(client).and_then(|path| append_audit(path, &audit))
-            {
-                emit_deny(&format!(
-                    "Bash Guard 审计日志写入失败，已按失败关闭处理：{audit_error}"
-                ));
+        Ok(jev_decision) => {
+            let allowed =
+                policy::mode_allows(&allowed_mode, &jev_decision.required_mode);
+            let reason = if allowed {
+                format!(
+                    "Jev 判定需求位 {} 已全部授予",
+                    jev_decision.required_mode
+                )
             } else {
-                if !decision.allowed {
-                    emit_deny(
-                        audit
-                            .get("reason")
-                            .and_then(Value::as_str)
-                            .unwrap_or("原有策略拒绝该操作"),
-                    );
-                }
-            }
-            return Ok(());
+                policy::jev_denial_reason(&jev_decision.required_mode, &allowed_mode)
+            };
+            (true, allowed, jev_decision.required_mode, reason, "jev", jev_decision.model)
+        }
+        Err(error) => {
+            let reason = if local.allowed {
+                local.reason.clone()
+            } else {
+                denial_message_with_fallback(&local.required_mode, &allowed_mode, &error)
+            };
+            (
+                false,
+                local.allowed,
+                local.required_mode.clone(),
+                reason,
+                "policy_fallback",
+                None,
+            )
         }
     };
-    let reason = if decision.allowed {
-        decision.reason.clone()
-    } else {
-        policy::jev_denial_reason()
-    };
-    let audit = json!({
+    let (with_error, allowed, required_mode, reason, decision_source, model) = decision;
+    let mut audit = json!({
         "time": OffsetDateTime::now_utc().format(&Rfc3339).unwrap_or_else(|_| "时间格式化失败".to_string()),
         "client": client,
         "session_id": event.get("session_id"),
@@ -194,29 +206,47 @@ fn hook(client: &str) -> Result<(), String> {
         "command": operation.command.map(jev::sanitize),
         "operation": operation.description,
         "tool_input_summary": operation.input_summary,
-        "allowed": decision.allowed,
+        "allowed": allowed,
         "allowed_mode": allowed_mode,
-        "decision_source": "jev",
-        "jev_choice": decision.choice,
-        "jev_probability": decision.probability,
-        "jev_model": decision.model,
+        "required_mode": required_mode,
         "reason": reason,
+        "decision_source": decision_source,
     });
+    if let Some(model) = model {
+        audit["jev_model"] = json!(model);
+    }
+    if with_error {
+        if let Err(error) = audit_log_path(client).and_then(|path| append_audit(path, &audit)) {
+            emit_deny(&format!(
+                "Bash Guard 审计日志写入失败，已按失败关闭处理：{error}"
+            ));
+        }
+        if !allowed {
+            emit_deny(&reason);
+        }
+        return Ok(());
+    }
     if let Err(error) = audit_log_path(client).and_then(|path| append_audit(path, &audit)) {
         emit_deny(&format!(
             "Bash Guard 审计日志写入失败，已按失败关闭处理：{error}"
         ));
         return Ok(());
     }
-    if !decision.allowed {
-        emit_deny(
-            audit
-                .get("reason")
-                .and_then(Value::as_str)
-                .unwrap_or("command blocked by bash safety policy"),
-        );
+    if !allowed {
+        emit_deny(&reason);
     }
     Ok(())
+}
+
+fn denial_message_with_fallback(
+    required_mode: &str,
+    allowed_mode: &str,
+    error: &str,
+) -> String {
+    format!(
+        "{} (Jev 不可用，已回退本地策略：{error})",
+        policy::denial_reason(required_mode, allowed_mode)
+    )
 }
 
 fn is_supported_tool(tool_name: &str) -> bool {

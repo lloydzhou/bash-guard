@@ -2,6 +2,20 @@
 
 本项目遵循[语义化版本](https://semver.org/lang/zh-CN/)。
 
+## 0.3.0 - 2026-10-19
+
+### 变更
+
+- Jev 判断输出从 `allow`/`deny` 改为 **required 权限数字**：一次请求发送 12 个校准概率问题（4 范围 × 读/写/执行，每问概率 ≥0.5 记该位），组装出四位八进制 `required` 后，与 `BASH_GUARD_MODE` 用与本地策略完全相同的位比较得出最终放行/拒绝。Jev 不再拥有独立的否决权。
+- 模式为 `7777` 时完全放行，不调用 Jev 也不调用本地策略（审计记录 `decision_source: mode_7777`）。
+- Jev 请求的 `state` 不再携带 `allowed_mode`：需求分类与已授予模式完全解耦，7777 等宽松模式不会干扰判断。
+- Jev 拒绝信息从 `source=jev decision=deny local_policy=unknown` 改为统一格式 `source=jev required=<需求位> allowed=<当前模式>`，与本地策略一样可解释缺哪个位。
+- Jev 审计记录以 `required_mode` 替代 `jev_choice`/`jev_probability`，保留 `jev_model`。
+
+### 新增
+
+- Jev 回退本地策略时，拒绝信息附带 `required/allowed` 位计算与回退原因。
+
 ## 0.2.0 - 2026-09-21
 
 ### 新增

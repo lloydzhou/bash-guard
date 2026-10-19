@@ -25,7 +25,7 @@
 - **Still enforced when permissions are bypassed.** The `PreToolUse` Hook runs before the supported client's permission decision.
 - **Fail closed.** A missing binary, invalid Hook input, or audit-write failure denies the protected tool call instead of silently allowing it.
 - **Permission-inspired least privilege.** The policy expresses sensitive capabilities with Linux-file-permission-inspired bits; grants must be explicit, and ungranted capabilities stay denied. It is an application policy model, not an operating-system file-permission implementation.
-- **Jev when you want semantic judgment.** With a key, Jev chooses `allow` or `deny` for the exact operation and returns a probability. That maps directly to a Codex/Claude Hook: `deny` emits a block; `allow` emits no output and lets the call proceed. Without a key—or when Jev is unavailable—Bash Guard uses the local policy.
+- **Jev when you want semantic judgment.** With a key, Jev classifies the exact operation into a `required` permission number (twelve calibrated probability questions, one per scope × bit). That number is compared with your configured mode through the same bit logic as the local policy, so the final allow/deny is always yours. Without a key—or when Jev is unavailable—Bash Guard uses the local policy. A mode of `7777` grants everything and skips both reviewers entirely.
 - **Small operational footprint.** Registration creates a minimal local Claude Code plugin adapter; it records the binary path and never copies the binary.
 - **Auditable by default.** JSONL audit records capture the client, tool name, each decision, operation summary, caller working directory, and policy requirement. Write content and Edit replacement text are recorded only as lengths.
 - **Shared policy semantics.** Command classification uses the same Rust policy implementation and denial wording as Bash Agent.
@@ -35,15 +35,16 @@
 ```text
 Agent tool call
       │
-      ├── no Jev key ────────────────► local Rust policy ──► allow / deny
+      ├── mode 7777 ─────────────────► allow (no review at all)
       │
-      └── Jev key configured ───────► Jev allow / deny + probability
-                                            │
-                              API error ───┴──► local Rust policy
-                              deny ────────────────────────► deny
+      ├── no Jev key ────────────────► local policy required bits ──► bit compare ──► allow / deny
+      │
+      └── Jev key configured ───────► Jev 12-question required bits ─┐
+                                       │                             ├─► same bit compare ──► allow / deny
+                          API error ───┴──► local policy required ───┘
 ```
 
-The local policy is never removed. This keeps the hook useful offline and gives Jev errors a predictable, reviewable fallback path.
+Both reviewers emit the same artifact—a four-digit `required` mode—and the final allow/deny always comes from one shared bit comparison against your configured mode.
 
 ## Quick start
 
@@ -113,19 +114,21 @@ Invalid modes fail closed as `0000`.
 
 ### Optional Jev decision layer
 
-[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is TypeSafe AI's System One model for typed decisions with probabilities. The existing local policy remains the baseline. When no Jev API key is configured, Bash Guard uses that policy exactly as before. Configure a key to add a Jev `allow` / `deny` decision before a tool call:
+[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is TypeSafe AI's System One model for typed decisions with probabilities. The local policy remains the default. When no Jev API key is configured, Bash Guard uses that policy exactly as before. Configure a key to add a Jev requirement classification before a tool call:
 
 ```bash
 JEV_API_KEY=... JEV_BASE_URL=https://api.typesafe.ai JEV_MODEL=jev-latest claude
 ```
 
-`JEV_API_KEY` takes precedence over `TYPESAFE_API_KEY`; `JEV_BASE_URL` (or `TYPESAFE_BASE_URL`) is extended with `/v1/systemone`; and `JEV_MODEL` (or `TYPESAFE_DEFAULT_MODEL`) defaults to `jev-latest`. `BASH_GUARD_JEV_API_KEY`, `BASH_GUARD_JEV_ENDPOINT`, and `BASH_GUARD_JEV_MODEL` are Bash Guard-specific highest-priority overrides. If a configured Jev request times out, fails, or returns an invalid response, Bash Guard records the error and falls back to the existing local policy. In the Hook protocol, `deny` blocks and `allow` proceeds; set `BASH_GUARD_JEV_TIMEOUT_MS` (`100`–`30000`) to tune the request deadline.
+`JEV_API_KEY` takes precedence over `TYPESAFE_API_KEY`; `JEV_BASE_URL` (or `TYPESAFE_BASE_URL`) is extended with `/v1/systemone`; and `JEV_MODEL` (or `TYPESAFE_DEFAULT_MODEL`) defaults to `jev-latest`. `BASH_GUARD_JEV_API_KEY`, `BASH_GUARD_JEV_ENDPOINT`, and `BASH_GUARD_JEV_MODEL` are Bash Guard-specific highest-priority overrides. If a configured Jev request times out, fails, or returns an invalid response, Bash Guard records the error and falls back to the existing local policy. Set `BASH_GUARD_JEV_TIMEOUT_MS` (`100`–`30000`) to tune the request deadline.
 
-The Hook-supplied absolute `cwd` is sent as `workspace_path`. The Jev prompt treats it as the workspace boundary: an external, parent-traversal, or indeterminate target must be denied. It is the client's declared working directory, not a separately discovered Git root.
+A mode of `7777` grants every bit and bypasses both reviewers entirely; the audit records `decision_source: mode_7777`.
 
-Jev also receives the normalized active `BASH_GUARD_MODE` and the complete policy contract: scope order `system / external / network / workspace`; exact boundaries for protected system and credential paths, external paths, network reads/writes/remote execution, and workspace operations; plus `read=4`, `write=2`, `execute=1` meanings. The prompt makes that contract authoritative and requires Jev to deny any operation whose required capability is not explicitly granted by the four-digit octal mode.
+The Hook-supplied absolute `cwd` is sent as `workspace_path`. The Jev prompt treats it as the workspace boundary. It is the client's declared working directory, not a separately discovered Git root.
 
-When Jev blocks an operation, the denial identifies `source=jev decision=deny local_policy=unknown`. The normal Jev path does not run the local policy, so it must not invent local required/allowed modes or a prose risk explanation. Original policy text appears only on the no-key and Jev-error fallback paths.
+Jev receives the complete policy contract—scope order `system / external / network / workspace`, exact boundaries for protected system and credential paths, external paths, network reads/writes/remote execution, and workspace operations, plus `read=4`, `write=2`, `execute=1` meanings—as twelve yes/no questions (`system.read` … `workspace.execute`). Each answer is a calibrated probability; a probability of at least `0.5` marks that bit as required, and the twelve answers assemble into the same four-digit `required` mode the local classifier produces. The granted mode is deliberately excluded from the request so the classification never depends on what is allowed.
+
+The final decision is always the shared bit comparison: `required` bits must be present in `BASH_GUARD_MODE`. When Jev blocks an operation, the denial identifies `source=jev required=<bits> allowed=<mode>`, so it is readable exactly like a local denial. Jev-error and no-key fallbacks produce the same format with `decision_source: policy_fallback` / `policy`.
 
 Audit logging is enabled by default. Claude Code writes to `$HOME/.claude/bash-guard-audit.jsonl`; Codex writes to `$HOME/.codex/bash-guard-audit.jsonl`. To use another path, set `BASH_GUARD_AUDIT_LOG` before launching the client:
 
@@ -134,7 +137,7 @@ BASH_GUARD_AUDIT_LOG="$HOME/logs/bash-guard.jsonl" codex
 tail -f "$HOME/logs/bash-guard.jsonl"
 ```
 
-Every line is one JSON object and includes `client` (`claude` or `codex`), so a deliberately shared override path remains attributable. `cwd` records the working directory supplied by the client for that tool call; it is useful for identifying the originating project and is not the path being accessed by the command. When Jev is used, audit rows include `decision_source`, the choice, probability, model, and (on fallback) `jev_error`; command summaries redact common credential arguments before they are logged or sent to Jev. If the log directory cannot be created, written, or synchronized, Bash Guard denies the command.
+Every line is one JSON object and includes `client` (`claude` or `codex`), so a deliberately shared override path remains attributable. `cwd` records the working directory supplied by the client for that tool call; it is useful for identifying the originating project and is not the path being accessed by the command. Audit rows include `decision_source` (`policy`, `jev`, `policy_fallback`, or `mode_7777`), `allowed`, `allowed_mode`, `required_mode`, `reason`, `jev_model` (on the Jev path), and (on fallback) `jev_error`; command summaries redact common credential arguments before they are logged or sent to Jev. If the log directory cannot be created, written, or synchronized, Bash Guard denies the command.
 
 A typical policy denial is:
 
