@@ -43,16 +43,16 @@ check 'Jev 允许低风险工作区读取' claude \
 check 'Codex 同样使用 Jev' codex \
   '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"cat README.md"}}' \
   ''
-check 'Jev 拒绝特权命令' claude \
+check 'Jev 判定需要系统执行位时拒绝特权命令' claude \
   '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"sudo reboot"}}' \
-  "$(deny 'command blocked by bash safety policy (source=jev decision=deny local_policy=unknown; mode=system/external/network/workspace bits=4:read,2:write,1:execute)')"
-check 'Jev 拒绝受保护路径读取' codex \
+  "$(deny 'command blocked by bash safety policy (source=jev required=1000 allowed=0467; mode=system/external/network/workspace bits=4:read,2:write,1:execute)')"
+check 'Jev 判定需要系统读位时拒绝受保护路径读取' codex \
   '{"hook_event_name":"PreToolUse","tool_name":"Read","cwd":"/workspace","tool_input":{"file_path":"/etc/hosts"}}' \
-  "$(deny 'command blocked by bash safety policy (source=jev decision=deny local_policy=unknown; mode=system/external/network/workspace bits=4:read,2:write,1:execute)')"
-check 'Jev 独自拦截时本地策略未知' claude \
+  "$(deny 'command blocked by bash safety policy (source=jev required=4000 allowed=0467; mode=system/external/network/workspace bits=4:read,2:write,1:execute)')"
+check 'Jev 需求位超出本地可放行范围时拦截' claude \
   '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"echo jev-block"}}' \
-  "$(deny 'command blocked by bash safety policy (source=jev decision=deny local_policy=unknown; mode=system/external/network/workspace bits=4:read,2:write,1:execute)')"
-check '低置信度 allow 直接放行' claude \
+  "$(deny 'command blocked by bash safety policy (source=jev required=2000 allowed=0467; mode=system/external/network/workspace bits=4:read,2:write,1:execute)')"
+check '不确定需求 required=0000 直接放行' claude \
   '{"hook_event_name":"PreToolUse","tool_name":"Bash","cwd":"/workspace","tool_input":{"command":"echo uncertain"}}' \
   ''
 
@@ -97,7 +97,7 @@ import sys
 with open(sys.argv[1]) as handle:
     entry = json.loads(handle.readline())
 assert entry["decision_source"] == "jev"
-assert entry["jev_choice"] == "allow"
+assert entry["required_mode"] == "0000"
 assert entry["command"] and "super-secret" not in entry["command"]
 PY
 then

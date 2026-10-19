@@ -5,6 +5,18 @@ import json
 import sys
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+SCOPES = ("system", "external", "network", "workspace")
+BITS = ("read", "write", "execute")
+
+
+def noul_answers(required):
+    answers = {}
+    for scope in SCOPES:
+        for bit in BITS:
+            probability = 0.99 if (scope, bit) in required else 0.10
+            answers[f"{scope}.{bit}"] = {"type": "noul", "noul": probability}
+    return answers
+
 
 class MockJev(BaseHTTPRequestHandler):
     def do_POST(self):
@@ -16,43 +28,38 @@ class MockJev(BaseHTTPRequestHandler):
         if request["model"] != "test-jev-model":
             self.send_error(400)
             return
-        action = request["questions"]["action"]
+        questions = request["questions"]
+        expected_keys = {f"{scope}.{bit}" for scope in SCOPES for bit in BITS}
         if (
-            action["type"] != "choice"
-            or set(action["criteria"]) != {"allow", "deny"}
-            or not action["instructions"]
+            set(questions) != expected_keys
+            or any(question["type"] != "noul" or not question["instructions"] for question in questions.values())
         ):
             self.send_error(422)
             return
         state = json.loads(request["state"])
+        policy = state["permission_policy"]
         if (
             state["workspace_path"] != state["cwd"]
-            or state["permission_policy"]["allowed_mode"] != "0467"
-            or state["permission_policy"]["scope_order"] != ["system", "external", "network", "workspace"]
-            or state["permission_policy"]["permission_bits"]["read"]["bit"] != 4
-            or state["permission_policy"]["permission_bits"]["write"]["bit"] != 2
-            or state["permission_policy"]["permission_bits"]["execute"]["bit"] != 1
-            or set(state["permission_policy"]["scope_definitions"]) != {"system", "external", "network", "workspace"}
-            or not state["permission_policy"]["rule"]
+            or "allowed_mode" in policy
+            or policy["scope_order"] != ["system", "external", "network", "workspace"]
+            or policy["permission_bits"]["read"]["bit"] != 4
+            or policy["permission_bits"]["write"]["bit"] != 2
+            or policy["permission_bits"]["execute"]["bit"] != 1
+            or set(policy["scope_definitions"]) != {"system", "external", "network", "workspace"}
+            or not policy["rule"]
         ):
             self.send_error(422)
             return
         text = " ".join(str(value) for value in state.values() if value)
-        choice, probability = ("allow", 0.96)
-        if "uncertain" in text:
-            probability = 0.60
-        elif "sudo reboot" in text or "/etc/" in text or "jev-block" in text:
-            choice, probability = ("deny", 0.99)
-        response = {
-            "model": "mock-jev",
-            "answers": {
-                "action": {
-                    "type": "choice",
-                    "choice": choice,
-                    "probabilities": {choice: probability},
-                }
-            },
-        }
+        if "sudo reboot" in text:
+            required = {("system", "execute")}
+        elif "/etc/" in text:
+            required = {("system", "read")}
+        elif "jev-block" in text:
+            required = {("system", "write")}
+        else:
+            required = set()
+        response = {"model": "mock-jev", "answers": noul_answers(required)}
         encoded = json.dumps(response).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
