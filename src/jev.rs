@@ -58,7 +58,10 @@ pub fn parse_requirement(response: &Value) -> Result<(String, Option<String>), S
             }
         }
     }
-    let model = response.get("model").and_then(Value::as_str).map(str::to_string);
+    let model = response
+        .get("model")
+        .and_then(Value::as_str)
+        .map(str::to_string);
     Ok((format!("{mask:04o}"), model))
 }
 
@@ -137,7 +140,10 @@ pub fn evaluate(
         .json::<Value>()
         .map_err(|error| format!("无法解析 Jev 判断响应：{error}"))?;
     let (required_mode, model) = parse_requirement(&response)?;
-    Ok(Decision { required_mode, model })
+    Ok(Decision {
+        required_mode,
+        model,
+    })
 }
 
 fn api_key() -> Option<String> {
@@ -245,10 +251,7 @@ mod tests {
                 .find(|(name, _)| *name == key)
                 .map(|(_, value)| *value)
                 .unwrap_or(0.1);
-            answers.insert(
-                key,
-                json!({"type": "noul", "noul": probability}),
-            );
+            answers.insert(key, json!({"type": "noul", "noul": probability}));
         }
         json!({"answers": answers})
     }

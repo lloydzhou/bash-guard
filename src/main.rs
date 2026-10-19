@@ -166,17 +166,20 @@ fn hook(client: &str) -> Result<(), String> {
         operation.command,
     ) {
         Ok(jev_decision) => {
-            let allowed =
-                policy::mode_allows(&allowed_mode, &jev_decision.required_mode);
+            let allowed = policy::mode_allows(&allowed_mode, &jev_decision.required_mode);
             let reason = if allowed {
-                format!(
-                    "Jev 判定需求位 {} 已全部授予",
-                    jev_decision.required_mode
-                )
+                format!("Jev 判定需求位 {} 已全部授予", jev_decision.required_mode)
             } else {
                 policy::jev_denial_reason(&jev_decision.required_mode, &allowed_mode)
             };
-            (true, allowed, jev_decision.required_mode, reason, "jev", jev_decision.model)
+            (
+                true,
+                allowed,
+                jev_decision.required_mode,
+                reason,
+                "jev",
+                jev_decision.model,
+            )
         }
         Err(error) => {
             let reason = if local.allowed {
@@ -238,11 +241,7 @@ fn hook(client: &str) -> Result<(), String> {
     Ok(())
 }
 
-fn denial_message_with_fallback(
-    required_mode: &str,
-    allowed_mode: &str,
-    error: &str,
-) -> String {
+fn denial_message_with_fallback(required_mode: &str, allowed_mode: &str, error: &str) -> String {
     format!(
         "{} (Jev 不可用，已回退本地策略：{error})",
         policy::denial_reason(required_mode, allowed_mode)
